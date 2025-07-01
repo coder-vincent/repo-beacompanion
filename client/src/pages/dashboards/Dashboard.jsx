@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSideBar";
 import { SiteHeader } from "@/components/SiteHeader";
 import { AppContext } from "@/context/AppContext";
+import clientMLService from "@/services/ClientMLService";
 import {
   Card,
   CardContent,
@@ -199,79 +200,76 @@ const Dashboard = () => {
     return frames;
   };
 
-  // Analyze behavior using ML API with real video frame sequence
+  // Analyze behavior using client-side ML with real video frame analysis
   const analyzeBehavior = async (behaviorType) => {
     try {
-      let body;
-      // Image-based behaviors
+      // Initialize client-side ML if not already done
+      if (!clientMLService.isInitialized) {
+        await clientMLService.initialize();
+      }
+
+      // Image-based behaviors - use current video frame
       if (
         ["eye_gaze", "tapping_hands", "tapping_feet", "sit_stand"].includes(
           behaviorType
         )
       ) {
-        // Capture a sequence of 10 frames
-        const frameSequence = captureFrameSequence(10);
-        if (!frameSequence || frameSequence.length < 10) {
-          console.log(`Not enough frame data for ${behaviorType}`);
+        if (!videoRef.current) {
+          console.log(`No video available for ${behaviorType}`);
           return null;
         }
-        body = JSON.stringify({
-          behaviorType: behaviorType,
-          frame_sequence: frameSequence, // send as frame_sequence
-        });
-      } else {
-        // Non-image behaviors: use real WPM data
-        if (behaviorType === "rapid_talking") {
-          let dataPayload;
-          if (wpmSeq.length >= 10) {
-            dataPayload = wpmSeq.slice(-10);
-          } else {
-            const af = getAudioFeatures();
-            if (!af) {
-              console.log("Skipping rapid_talking: no audio input");
-              return null;
-            }
-            const estWpm = Math.round((af[1] + af[2]) * 150 + 90); // heuristic 90-240
-            dataPayload = Array(10).fill(estWpm);
-          }
-          body = JSON.stringify({
-            behaviorType: behaviorType,
-            data: { rapid_talking: dataPayload },
-          });
-        } else {
-          body = JSON.stringify({
-            behaviorType: behaviorType,
-            data: { [behaviorType]: [] },
-          });
-        }
-      }
-      const response = await fetch(`${backendUrl}/api/ml/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body,
-      });
 
-      if (response.ok) {
-        const result = await response.json();
-        console.log(`Analysis result for ${behaviorType}:`, result);
-        if (result.success && result.analysis) {
-          return result.analysis;
-        } else {
-          console.log(`No analysis data for ${behaviorType}`);
+        // Analyze current video frame directly
+        const result = await clientMLService.analyzeFrame(
+          videoRef.current,
+          behaviorType
+        );
+
+        console.log(`Client-side analysis result for ${behaviorType}:`, result);
+        return result.analysis || result;
+      } else if (behaviorType === "rapid_talking") {
+        // Audio-based behavior analysis
+        const audioFeatures = getAudioFeatures();
+        if (!audioFeatures) {
+          console.log("Skipping rapid_talking: no audio input");
           return null;
         }
-      } else {
-        console.log(`Analysis failed for ${behaviorType}:`, response.status);
-        return null;
+
+        // Use actual WPM data if available, otherwise estimate from audio features
+        let speechData;
+        if (wpmSeq.length >= 5) {
+          const avgWpm = wpmSeq.slice(-5).reduce((a, b) => a + b, 0) / 5;
+          speechData = { wpm: avgWpm, audioFeatures };
+        } else {
+          const estWpm = Math.round(
+            (audioFeatures[1] + audioFeatures[2]) * 150 + 90
+          );
+          speechData = { wpm: estWpm, audioFeatures };
+        }
+
+        // Simple threshold-based detection for rapid talking
+        const isRapid = speechData.wpm > 160; // Words per minute threshold
+        const confidence = Math.min(0.9, Math.max(0.1, speechData.wpm / 200));
+
+        return {
+          behavior_type: behaviorType,
+          confidence: confidence,
+          detected: isRapid,
+          timestamp: new Date().toISOString(),
+          message: `Client-side audio analysis - WPM: ${Math.round(
+            speechData.wpm
+          )}`,
+        };
       }
-    } catch (_e) {
-      console.log(`Analysis error for ${behaviorType}:`, _e);
+
+      return null;
+    } catch (error) {
+      console.log(`Client-side analysis error for ${behaviorType}:`, error);
       return null;
     }
   };
 
-  // Run behavioral analysis
+  // Run behavioral analysis using client-side ML
   const runBehavioralAnalysis = async () => {
     if (!monitoring) {
       return;
@@ -288,48 +286,74 @@ const Dashboard = () => {
         "rapid_talking",
       ];
 
-      // Build behaviors payload for batch endpoint
-      const framesForImages = captureFrameSequence(10);
-
-      const behaviorsPayload = [];
-      ["eye_gaze", "tapping_hands", "tapping_feet", "sit_stand"].forEach(
-        (bt) => {
-          behaviorsPayload.push({ type: bt, data: framesForImages });
-        }
-      );
-      // rapid_talking via audio features if mic available
-      const audioFeatures = getAudioFeatures();
-      if (wpmSeq.length >= 10) {
-        behaviorsPayload.push({
-          type: "rapid_talking",
-          data: wpmSeq.slice(-10),
-        });
-      } else if (audioFeatures) {
-        const estWpm = Math.round(
-          (audioFeatures[1] + audioFeatures[2]) * 150 + 90
+      // Initialize client-side ML if not already done
+      if (!clientMLService.isInitialized) {
+        console.log(
+          "Initializing client-side ML for comprehensive analysis..."
         );
-        behaviorsPayload.push({
-          type: "rapid_talking",
-          data: Array(10).fill(estWpm),
-        });
+        await clientMLService.initialize();
       }
 
-      // Send one request to batch endpoint
-      const batchResp = await fetch(`${backendUrl}/api/ml/batch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ behaviors: behaviorsPayload }),
-      });
-
       let results = [];
-      if (batchResp.ok) {
-        const json = await batchResp.json();
-        results = json.results || [];
+
+      // Use comprehensive analysis from client-side ML for video behaviors
+      if (videoRef.current) {
+        try {
+          const comprehensiveResult = await clientMLService.analyzeFrame(
+            videoRef.current,
+            "comprehensive"
+          );
+
+          if (comprehensiveResult.success && comprehensiveResult.analysis) {
+            const analysis = comprehensiveResult.analysis;
+
+            // Extract results for video-based behaviors
+            const videoBehaviors = [
+              "eye_gaze",
+              "sit_stand",
+              "tapping_hands",
+              "tapping_feet",
+            ];
+            videoBehaviors.forEach((behavior) => {
+              if (analysis.all_behaviors && analysis.all_behaviors[behavior]) {
+                results.push(analysis.all_behaviors[behavior]);
+              } else if (analysis.behavior_type === behavior) {
+                results.push(analysis);
+              } else {
+                // Default result if behavior not detected
+                results.push({
+                  behavior_type: behavior,
+                  confidence: 0,
+                  detected: false,
+                  timestamp: new Date().toISOString(),
+                  message: "Client-side ML analysis - not detected",
+                });
+              }
+            });
+          }
+        } catch (error) {
+          console.error(
+            "Comprehensive analysis failed, falling back to individual analysis:",
+            error
+          );
+          // Fallback to individual analysis
+          const videoAnalysisPromises = [
+            "eye_gaze",
+            "sit_stand",
+            "tapping_hands",
+            "tapping_feet",
+          ].map((behaviorType) => analyzeBehavior(behaviorType));
+          const videoResults = await Promise.all(videoAnalysisPromises);
+          results.push(...videoResults.filter((r) => r !== null));
+        }
       } else {
-        // fall back to previous individual analysis if batch fails
-        const analysisPromises = behaviorTypes.map(analyzeBehavior);
-        results = await Promise.all(analysisPromises);
+        console.log("No video available, skipping video-based analysis");
+      }
+
+      // Analyze rapid talking separately (audio-based)
+      const rapidTalkingResult = await analyzeBehavior("rapid_talking");
+      if (rapidTalkingResult) {
+        results.push(rapidTalkingResult);
       }
 
       // Reset current behavior snapshot for this cycle
