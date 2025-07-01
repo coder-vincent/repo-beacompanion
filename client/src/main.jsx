@@ -9,7 +9,12 @@ import { SocketProvider } from "./context/SocketContext";
 import { Toaster } from "react-hot-toast";
 
 createRoot(document.getElementById("root")).render(
-  <BrowserRouter>
+  <BrowserRouter
+    future={{
+      v7_startTransition: true,
+      v7_relativeSplatPath: true,
+    }}
+  >
     <SocketProvider>
       <AppContextProvider>
         <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
