@@ -843,6 +843,9 @@ const Dashboard = () => {
 
       // Reset current behavior snapshot for this cycle
       const newBehaviors = {};
+
+      console.log("🔍 BEHAVIOR ANALYSIS RESULTS:");
+      console.log("====================================");
       behaviorTypes.forEach((bt) => {
         newBehaviors[bt] = { detected: false, confidence: 0 };
       });
@@ -852,13 +855,57 @@ const Dashboard = () => {
 
       results.forEach((result, idx) => {
         const behaviorType = result?.behavior_type || behaviorTypes[idx];
-        if (!result) return; // keep default false
+
+        console.log(
+          `📋 Processing result ${idx + 1}/${results.length}: ${behaviorType}`
+        );
+        console.log(`   Raw result:`, result);
+
+        if (!result) {
+          console.log(
+            `   ❌ No result for ${behaviorType} - keeping default false`
+          );
+          return; // keep default false
+        }
 
         // Update current behaviors
         newBehaviors[behaviorType] = {
           detected: Boolean(result.detected),
           confidence: parseFloat(result.confidence || result.probability || 0),
         };
+
+        console.log(
+          `   ✅ Updated ${behaviorType}: detected=${Boolean(
+            result.detected
+          )}, confidence=${parseFloat(
+            result.confidence || result.probability || 0
+          )}`
+        );
+
+        // SPECIAL DEBUGGING for rapid_talking
+        if (behaviorType === "rapid_talking") {
+          console.log(`🎯 RAPID TALKING PROCESSING DETAIL:`);
+          console.log(
+            `   detected: ${result.detected} (type: ${typeof result.detected})`
+          );
+          console.log(
+            `   confidence: ${
+              result.confidence
+            } (type: ${typeof result.confidence})`
+          );
+          console.log(`   Boolean(detected): ${Boolean(result.detected)}`);
+          console.log(
+            `   parseFloat(confidence): ${parseFloat(
+              result.confidence || result.probability || 0
+            )}`
+          );
+
+          if (result.detected) {
+            console.log(`🚨 RAPID TALKING SHOULD BE DETECTED IN UI!`);
+          } else {
+            console.log(`❌ Rapid talking not detected - will show as 0 in UI`);
+          }
+        }
 
         // Record increments to apply after loop to avoid stale closure
         if (!incrementMap[behaviorType]) {
@@ -901,8 +948,19 @@ const Dashboard = () => {
         }
       });
 
+      console.log("🔄 About to update currentBehaviors with:", newBehaviors);
+      console.log(
+        "🎯 Rapid talking in newBehaviors:",
+        newBehaviors.rapid_talking
+      );
+
       setCurrentBehaviors(newBehaviors);
       setAlerts(newAlerts);
+
+      console.log(
+        "✅ currentBehaviors updated, rapid talking should now be:",
+        newBehaviors.rapid_talking
+      );
       // Apply increments using functional state update to get latest counts
       setBehaviorData((prev) => {
         const updated = { ...prev };
@@ -1862,6 +1920,63 @@ const Dashboard = () => {
                             >
                               ⚡ FORCE DETECTION
                             </Button>
+
+                            <Button
+                              onClick={() => {
+                                console.log(
+                                  "💥 DIRECT UI UPDATE - Bypassing all APIs and analysis"
+                                );
+
+                                // Directly set rapid talking as detected in the UI
+                                setCurrentBehaviors((prev) => {
+                                  const updated = {
+                                    ...prev,
+                                    rapid_talking: {
+                                      detected: true,
+                                      confidence: 0.85,
+                                    },
+                                  };
+                                  console.log(
+                                    "🔄 Directly updated currentBehaviors:",
+                                    updated
+                                  );
+                                  return updated;
+                                });
+
+                                setRapidTalkingStatus(
+                                  "💥 FORCED UI UPDATE: 85% confidence"
+                                );
+
+                                // Also update behavior data for counts
+                                setBehaviorData((prev) => {
+                                  const updated = { ...prev };
+                                  if (!updated.rapid_talking) {
+                                    updated.rapid_talking = {
+                                      count: 0,
+                                      totalConfidence: 0,
+                                    };
+                                  }
+                                  updated.rapid_talking.count += 1;
+                                  updated.rapid_talking.totalConfidence += 0.85;
+                                  console.log(
+                                    "📊 Updated behaviorData:",
+                                    updated
+                                  );
+                                  return updated;
+                                });
+
+                                toast.success(
+                                  "💥 UI FORCED: Rapid talking now showing as detected!"
+                                );
+                                console.log(
+                                  "✅ Direct UI update complete - rapid talking should be red now"
+                                );
+                              }}
+                              variant="destructive"
+                              className="flex items-center gap-2 w-full sm:w-auto bg-red-600 hover:bg-red-700"
+                            >
+                              💥 FORCE UI
+                            </Button>
                           </>
                         ) : (
                           <>
@@ -2024,6 +2139,19 @@ const Dashboard = () => {
                               {/* Rapid Talking Status Overlay */}
                               <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded text-xs max-w-48 truncate">
                                 Speech: {rapidTalkingStatus}
+                              </div>
+
+                              {/* Debug: Current Behavior State */}
+                              <div className="absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
+                                RT:{" "}
+                                {currentBehaviors.rapid_talking?.detected
+                                  ? "✅"
+                                  : "❌"}
+                                {(
+                                  currentBehaviors.rapid_talking?.confidence *
+                                    100 || 0
+                                ).toFixed(0)}
+                                %
                               </div>
 
                               {/* Monitoring Status Overlay */}
