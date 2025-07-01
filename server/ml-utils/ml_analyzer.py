@@ -64,6 +64,12 @@ _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
     refine_landmarks=False,
 )
 
+# Mediapipe Face Detection as fallback
+_mp_face_detection = mp.solutions.face_detection.FaceDetection(
+    model_selection=0,
+    min_detection_confidence=0.3
+)
+
 # Landmarks indices around both eyes (approx.)
 _EYE_IDXS = [
     33, 246, 161, 160, 159, 158, 157, 173, 133, 7, 163, 144, 145, 153,
@@ -112,34 +118,55 @@ def _frames_to_tensor(frames: List[str]) -> torch.Tensor:
 
 def _eye_crop(img: Image.Image) -> Image.Image | None:
     """Return a 64×64 crop that covers both eyes or None if no face."""
+    
+    # Ensure minimum size for detection
+    if img.size[0] < 100 or img.size[1] < 100:
+        img = img.resize((640, 480), Image.Resampling.LANCZOS)
 
     rgb = np.array(img)  # PIL to numpy RGB
     results = _mp_face_mesh.process(rgb)
     if not results.multi_face_landmarks:
-        return None
+        # Try with face detection instead of face mesh
+        face_results = _mp_face_detection.process(rgb)
+        if not face_results.detections:
+            return None
+        # Use face detection bounding box for eye region
+        detection = face_results.detections[0]
+        bbox = detection.location_data.relative_bounding_box
+        h, w, _ = rgb.shape
+        x_min = int(bbox.xmin * w)
+        y_min = int(bbox.ymin * h + bbox.height * h * 0.2)  # Upper part for eyes
+        x_max = int((bbox.xmin + bbox.width) * w)
+        y_max = int(bbox.ymin * h + bbox.height * h * 0.6)  # Middle part for eyes
+    else:
+        h, w, _ = rgb.shape
+        xs, ys = [], []
+        for lm_idx in _EYE_IDXS:
+            lm = results.multi_face_landmarks[0].landmark[lm_idx]
+            xs.append(lm.x * w)
+            ys.append(lm.y * h)
 
-    h, w, _ = rgb.shape
-    xs, ys = [], []
-    for lm_idx in _EYE_IDXS:
-        lm = results.multi_face_landmarks[0].landmark[lm_idx]
-        xs.append(lm.x * w)
-        ys.append(lm.y * h)
+        x_min, x_max = max(min(xs) - 20, 0), min(max(xs) + 20, w)
+        y_min, y_max = max(min(ys) - 20, 0), min(max(ys) + 20, h)
 
-    x_min, x_max = max(min(xs) - 10, 0), min(max(xs) + 10, w)
-    y_min, y_max = max(min(ys) - 10, 0), min(max(ys) + 10, h)
-
-    if x_max - x_min < 10 or y_max - y_min < 10:
+    if x_max - x_min < 20 or y_max - y_min < 20:
         return None
 
     crop = rgb[int(y_min): int(y_max), int(x_min): int(x_max)]
     if crop.size == 0:
         return None
     crop_pil = Image.fromarray(crop)
+    # Resize to consistent size for model
+    crop_pil = crop_pil.resize((64, 64), Image.Resampling.LANCZOS)
     return crop_pil
 
 
 def _hand_crop(img: Image.Image) -> Image.Image | None:
     """Return crop around first detected hand suitable for tapping models."""
+    
+    # Ensure minimum size for detection
+    if img.size[0] < 200 or img.size[1] < 200:
+        img = img.resize((640, 480), Image.Resampling.LANCZOS)
 
     rgb = np.array(img)
     results = _mp_hands.process(rgb)
@@ -152,14 +179,18 @@ def _hand_crop(img: Image.Image) -> Image.Image | None:
         xs.append(lm.x * w)
         ys.append(lm.y * h)
 
-    x_min, x_max = max(min(xs) - 10, 0), min(max(xs) + 10, w)
-    y_min, y_max = max(min(ys) - 10, 0), min(max(ys) + 10, h)
-    if x_max - x_min < 10 or y_max - y_min < 10:
+    # Larger crop area for better detection
+    x_min, x_max = max(min(xs) - 30, 0), min(max(xs) + 30, w)
+    y_min, y_max = max(min(ys) - 30, 0), min(max(ys) + 30, h)
+    if x_max - x_min < 30 or y_max - y_min < 30:
         return None
     crop = rgb[int(y_min): int(y_max), int(x_min): int(x_max)]
     if crop.size == 0:
         return None
-    return Image.fromarray(crop)
+    crop_pil = Image.fromarray(crop)
+    # Resize to consistent size for model
+    crop_pil = crop_pil.resize((224, 224), Image.Resampling.LANCZOS)
+    return crop_pil
 
 
 def _foot_crop(img: Image.Image) -> Image.Image | None:
@@ -196,6 +227,35 @@ def _pose_xy(img: Image.Image) -> List[float] | None:
     for lm in res.pose_landmarks.landmark:
         coords.extend([lm.x, lm.y])  # already normalized
     return coords
+
+
+def _analyze_frame_movement(frames: List[str]) -> float:
+    """Analyze frame sequence for movement/changes to generate realistic fallback confidence."""
+    if len(frames) < 2:
+        return 0.2
+    
+    try:
+        # Convert first and last frames to analyze movement
+        img1 = _decode_image(frames[0])
+        img2 = _decode_image(frames[-1])
+        
+        # Convert to grayscale for comparison
+        gray1 = img1.convert('L')
+        gray2 = img2.convert('L')
+        
+        # Resize to consistent size for comparison
+        gray1 = gray1.resize((100, 100))
+        gray2 = gray2.resize((100, 100))
+        
+        # Calculate frame difference
+        arr1 = np.array(gray1, dtype=np.float32)
+        arr2 = np.array(gray2, dtype=np.float32)
+        diff = np.mean(np.abs(arr1 - arr2)) / 255.0
+        
+        # Movement suggests potential behavior
+        return min(1.0, diff * 2.0 + 0.1)
+    except Exception:
+        return 0.3  # Default moderate confidence
 
 
 def _predict(behavior: str, data: Any) -> Dict[str, Any]:
@@ -238,8 +298,10 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
 
             if len(crops) < 2:  # need at least 2 frames
                 print(f"Eye gaze: only {len(crops)} valid crops from {len(frames)} frames", file=sys.stderr)
-                # Fallback: generate synthetic low confidence detection
-                return {"detected": True, "confidence": 0.25, "gaze": "straight", "fallback": True}
+                # Fallback: analyze frame movement/brightness for basic detection
+                frame_analysis = _analyze_frame_movement(frames)
+                confidence = max(0.15, min(0.45, frame_analysis * 0.4 + 0.15))
+                return {"detected": confidence > 0.25, "confidence": round(confidence, 3), "gaze": "straight", "fallback": True}
 
             frames_tensor = torch.stack(crops, dim=0).unsqueeze(0).to(DEVICE)  # (1, T, C, H, W)
             logits = model(frames_tensor)  # shape (1, 5)
@@ -278,8 +340,10 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
 
             if len(crops) < 2:
                 print(f"{behavior}: only {len(crops)} valid crops from {len(frames)} frames", file=sys.stderr)
-                # Fallback: generate synthetic low confidence detection based on frame analysis
-                return {"detected": True, "confidence": 0.35, "fallback": True}
+                # Fallback: analyze frame movement for tapping detection
+                frame_analysis = _analyze_frame_movement(frames)
+                confidence = max(0.2, min(0.5, frame_analysis * 0.5 + 0.2))
+                return {"detected": confidence > 0.3, "confidence": round(confidence, 3), "fallback": True}
 
             frames_tensor = torch.stack(crops, dim=0).unsqueeze(0).to(DEVICE)
             logits = model(frames_tensor)
@@ -300,8 +364,10 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
                         continue
                 if len(seq) < 2:
                     print(f"Sit/stand: only {len(seq)} valid poses from frames", file=sys.stderr)
-                    # Fallback: generate synthetic detection based on movement
-                    return {"detected": True, "confidence": 0.30, "fallback": True}
+                    # Fallback: analyze frame movement for posture changes
+                    frame_analysis = _analyze_frame_movement(data)
+                    confidence = max(0.15, min(0.4, frame_analysis * 0.3 + 0.15))
+                    return {"detected": confidence > 0.25, "confidence": round(confidence, 3), "fallback": True}
             else:
                 seq = data if isinstance(data, list) else data.get(behavior) or []
 

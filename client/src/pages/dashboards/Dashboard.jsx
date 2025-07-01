@@ -222,14 +222,22 @@ const Dashboard = () => {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const frameData = canvas.toDataURL("image/jpeg", 0.8);
 
-        // For sequence-based models, capture multiple frames with proper timing
+        // For sequence-based models, capture multiple frames with higher quality
         const frameSequence = [];
-        for (let i = 0; i < 10; i++) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          frameSequence.push(canvas.toDataURL("image/jpeg", 0.7));
-          // Wait for next video frame (roughly 33ms for 30fps)
+        // Ensure minimum resolution for MediaPipe detection
+        const minWidth = Math.max(canvas.width, 640);
+        const minHeight = Math.max(canvas.height, 480);
+        canvas.width = minWidth;
+        canvas.height = minHeight;
+
+        for (let i = 0; i < 8; i++) {
+          // Draw with better scaling for detection
+          ctx.drawImage(videoRef.current, 0, 0, minWidth, minHeight);
+          // Higher quality encoding for better MediaPipe results
+          frameSequence.push(canvas.toDataURL("image/jpeg", 0.9));
+          // Wait for next video frame
           await new Promise((resolve) => requestAnimationFrame(resolve));
-          await new Promise((resolve) => setTimeout(resolve, 150)); // 150ms between frames for better sequence
+          await new Promise((resolve) => setTimeout(resolve, 200)); // 200ms between frames
         }
 
         // Call real Python ML API
