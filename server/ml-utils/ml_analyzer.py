@@ -224,13 +224,16 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
                 frames = data
 
             crops = []
-            for f in frames:
+            for i, f in enumerate(frames):
                 try:
                     img = _decode_image(f)
                     eye = _eye_crop(img)
                     if eye is not None:
                         crops.append(_IMAGE_TF(eye))
-                except Exception:
+                    else:
+                        print(f"Frame {i}: No face detected in image", file=sys.stderr)
+                except Exception as e:
+                    print(f"Frame {i} failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
                     continue
 
             if len(crops) < 2:  # need at least 2 frames
@@ -259,14 +262,18 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
                 frames = data
 
             crops = []
-            for f in frames:
+            for i, f in enumerate(frames):
                 try:
                     img = _decode_image(f)
                     crop_fn = _hand_crop if behavior == "tapping_hands" else _foot_crop
                     cimg = crop_fn(img)
                     if cimg is not None:
                         crops.append(_IMAGE_TF(cimg))
-                except Exception:
+                    else:
+                        detection_type = "hands" if behavior == "tapping_hands" else "feet/pose"
+                        print(f"Frame {i}: No {detection_type} detected in image", file=sys.stderr)
+                except Exception as e:
+                    print(f"Frame {i} failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
                     continue
 
             if len(crops) < 2:
