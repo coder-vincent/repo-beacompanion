@@ -25,9 +25,6 @@ const mlDataMiddleware = express.json({
   },
 });
 
-// Test endpoint without auth for debugging
-mlRouter.post("/test-analyze", mlDataMiddleware, analyzeBehavior);
-
 // ML Analysis Routes (temporarily without authentication for demo)
 mlRouter.post("/analyze", mlDataMiddleware, analyzeBehavior);
 mlRouter.get("/status", getModelStatus);
