@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -10,6 +10,20 @@ const __dirname = path.dirname(__filename);
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
+    // Temporary: Disable ML in production until Python dependencies are fixed
+    if (process.env.NODE_ENV === "production") {
+      return res.json({
+        success: true,
+        message: "ML analysis temporarily disabled in production",
+        analysis: {
+          behaviors: [],
+          alerts: [],
+          confidence: 0,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
     // Support both camelCase and snake_case keys coming from frontend / tests
     const behaviorType = req.body.behaviorType || req.body.behavior_type;
     const data =
@@ -241,6 +255,20 @@ export const analyzeBehavior = async (req, res) => {
 // Get ML model status
 export const getModelStatus = async (req, res) => {
   try {
+    // Temporary: Return mock status in production
+    if (process.env.NODE_ENV === "production") {
+      return res.json({
+        success: true,
+        status: {
+          modelsLoaded: false,
+          availableModels: [],
+          systemStatus: "ML temporarily disabled in production",
+          pythonVersion: "N/A",
+          torchVersion: "N/A",
+        },
+      });
+    }
+
     const pythonScript = path.join(
       __dirname,
       "../../machine-learning/utils/model_status.py"
@@ -311,6 +339,15 @@ export const getModelStatus = async (req, res) => {
 // Batch analysis for multiple behaviors
 export const batchAnalysis = async (req, res) => {
   try {
+    // Temporary: Disable ML in production until Python dependencies are fixed
+    if (process.env.NODE_ENV === "production") {
+      return res.json({
+        success: true,
+        message: "Batch analysis temporarily disabled in production",
+        results: [],
+      });
+    }
+
     const { behaviors } = req.body;
 
     if (!behaviors || !Array.isArray(behaviors)) {
@@ -506,5 +543,111 @@ export const evaluateDataset = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+export const analyzeImage = async (req, res) => {
+  try {
+    // Temporary: Disable ML in production until Python dependencies are fixed
+    if (process.env.NODE_ENV === "production") {
+      return res.json({
+        success: true,
+        message: "ML analysis temporarily disabled in production",
+        analysis: {
+          behaviors: [],
+          alerts: [],
+          confidence: 0,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    const { imageData, analysisType = "comprehensive" } = req.body;
+
+    if (!imageData) {
+      return res.json({
+        success: false,
+        message: "Image data is required",
+      });
+    }
+
+    // Use the Python script in ml-utils directory
+    const scriptPath = path.join(__dirname, "..", "ml-utils", "ml_analyzer.py");
+
+    const pythonCommand = `python "${scriptPath}" --analysis-type ${analysisType}`;
+
+    // Execute the Python script with the image data
+    const result = execSync(pythonCommand, {
+      input: JSON.stringify({ imageData }),
+      encoding: "utf-8",
+      timeout: 30000, // 30 second timeout
+    });
+
+    const analysis = JSON.parse(result);
+
+    res.json({
+      success: true,
+      analysis,
+    });
+  } catch (error) {
+    console.error("ML Analysis error:", error);
+    res.json({
+      success: false,
+      message: "Analysis failed",
+      error: error.message,
+    });
+  }
+};
+
+export const batchAnalyze = async (req, res) => {
+  try {
+    // Temporary: Disable ML in production until Python dependencies are fixed
+    if (process.env.NODE_ENV === "production") {
+      return res.json({
+        success: true,
+        message: "Batch analysis temporarily disabled in production",
+        results: [],
+      });
+    }
+
+    const { images, analysisType = "comprehensive" } = req.body;
+
+    if (!images || !Array.isArray(images)) {
+      return res.json({
+        success: false,
+        message: "Images array is required",
+      });
+    }
+
+    // Use the Python script in ml-utils directory
+    const scriptPath = path.join(
+      __dirname,
+      "..",
+      "ml-utils",
+      "batch_analyzer.py"
+    );
+
+    const pythonCommand = `python "${scriptPath}" --analysis-type ${analysisType}`;
+
+    // Execute the Python script with batch data
+    const result = execSync(pythonCommand, {
+      input: JSON.stringify({ images }),
+      encoding: "utf-8",
+      timeout: 60000, // 60 second timeout for batch processing
+    });
+
+    const analysis = JSON.parse(result);
+
+    res.json({
+      success: true,
+      results: analysis,
+    });
+  } catch (error) {
+    console.error("Batch ML Analysis error:", error);
+    res.json({
+      success: false,
+      message: "Batch analysis failed",
+      error: error.message,
+    });
   }
 };
