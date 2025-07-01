@@ -648,6 +648,41 @@ const Dashboard = () => {
         setTimer(elapsed);
       }, 1000);
       setTimerIntervalId(interval);
+      // Initialize real-time ML detection
+      if (videoRef.current) {
+        clientMLService.startRealTimeDetection(videoRef.current, (result) => {
+          console.log("Real-time detection result:", result);
+          if (result.success && result.analysis) {
+            const analysis = result.analysis;
+
+            // Update current behaviors state
+            setCurrentBehaviors((prev) => ({
+              ...prev,
+              [analysis.behavior_type]: {
+                detected: analysis.detected,
+                confidence: analysis.confidence,
+              },
+            }));
+
+            // Add alert if behavior detected with high confidence
+            if (analysis.detected && analysis.confidence > 0.4) {
+              setAlerts((prev) =>
+                [
+                  ...prev,
+                  {
+                    id: Date.now() + Math.random(),
+                    behavior: analysis.behavior_type,
+                    confidence: analysis.confidence,
+                    timestamp: new Date().toISOString(),
+                    message: analysis.message,
+                  },
+                ].slice(-10)
+              ); // Keep only last 10 alerts
+            }
+          }
+        });
+      }
+
       const analysisInterval = setInterval(() => {
         console.log("Running scheduled analysis...");
         runBehavioralAnalysis();
@@ -670,6 +705,9 @@ const Dashboard = () => {
 
   // Stop monitoring
   const stopMonitoring = async () => {
+    // Stop real-time ML detection
+    clientMLService.stopRealTimeDetection();
+
     // Clear intervals
     if (timerIntervalId) {
       clearInterval(timerIntervalId);
