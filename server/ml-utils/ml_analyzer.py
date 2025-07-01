@@ -129,7 +129,7 @@ def _eye_crop(img: Image.Image) -> Image.Image | None:
         # Try with face detection instead of face mesh
         face_results = _mp_face_detection.process(rgb)
         if not face_results.detections:
-            return None
+        return None
         # Use face detection bounding box for eye region
         detection = face_results.detections[0]
         bbox = detection.location_data.relative_bounding_box
@@ -139,12 +139,12 @@ def _eye_crop(img: Image.Image) -> Image.Image | None:
         x_max = int((bbox.xmin + bbox.width) * w)
         y_max = int(bbox.ymin * h + bbox.height * h * 0.6)  # Middle part for eyes
     else:
-        h, w, _ = rgb.shape
-        xs, ys = [], []
-        for lm_idx in _EYE_IDXS:
-            lm = results.multi_face_landmarks[0].landmark[lm_idx]
-            xs.append(lm.x * w)
-            ys.append(lm.y * h)
+    h, w, _ = rgb.shape
+    xs, ys = [], []
+    for lm_idx in _EYE_IDXS:
+        lm = results.multi_face_landmarks[0].landmark[lm_idx]
+        xs.append(lm.x * w)
+        ys.append(lm.y * h)
 
         x_min, x_max = max(min(xs) - 20, 0), min(max(xs) + 20, w)
         y_min, y_max = max(min(ys) - 20, 0), min(max(ys) + 20, h)
@@ -427,7 +427,7 @@ def main() -> None:
     data = payload.get(args.behavior, payload)
 
     try:
-        result = _predict(args.behavior, data)
+    result = _predict(args.behavior, data)
         
         # Ensure result is valid JSON serializable
         if not isinstance(result, dict):
@@ -439,7 +439,7 @@ def main() -> None:
 
     # Output **only** JSON on stdout so Node.js can parse it directly
     try:
-        sys.stdout.write(json.dumps(result))
+    sys.stdout.write(json.dumps(result))
         sys.stdout.flush()
     except Exception as exc:
         print(f"JSON output error: {str(exc)}", file=sys.stderr)

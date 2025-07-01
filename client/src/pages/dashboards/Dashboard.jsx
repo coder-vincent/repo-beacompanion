@@ -160,10 +160,12 @@ const Dashboard = () => {
             )} (${words} words in ${minutes.toFixed(2)} minutes)`
           );
 
-          // IMMEDIATE rapid talking detection and ML analysis
-          if (wpm > 140) {
+          // IMMEDIATE rapid talking detection and ML analysis at 48+ WPM
+          if (wpm > 48) {
             console.log(
-              `🚨 RAPID TALKING DETECTED REAL-TIME: ${wpm.toFixed(1)} WPM!`
+              `🚨 RAPID TALKING DETECTED REAL-TIME: ${wpm.toFixed(
+                1
+              )} WPM! (threshold: 48+ WPM)`
             );
             setRapidTalkingStatus(`🚨 RAPID TALKING: ${wpm.toFixed(1)} WPM!`);
 
@@ -186,16 +188,10 @@ const Dashboard = () => {
 
               return newArr;
             });
-          } else if (wpm > 120) {
-            console.log(`⚡ Fast speech detected: ${wpm.toFixed(1)} WPM`);
-            setRapidTalkingStatus(`⚡ Fast: ${wpm.toFixed(1)} WPM`);
-
-            setWpmSeq((prev) => {
-              const newArr = [...prev, wpm].slice(-10);
-              return newArr;
-            });
           } else {
-            console.log(`🐌 Normal speech: ${wpm.toFixed(1)} WPM`);
+            console.log(
+              `🐌 Normal speech: ${wpm.toFixed(1)} WPM (below 48 WPM threshold)`
+            );
             setRapidTalkingStatus(`🐌 Normal: ${wpm.toFixed(1)} WPM`);
 
             setWpmSeq((prev) => {
@@ -713,12 +709,12 @@ const Dashboard = () => {
               .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM)`
           );
 
-          // Only proceed if there's significant speech detected
-          if (avgWpm < 140) {
+          // Only proceed if speech exceeds 48 WPM threshold
+          if (avgWpm < 48) {
             console.log(
               `🐌 Slow/normal speech (${avgWpm.toFixed(
                 1
-              )} WPM) - no rapid talking`
+              )} WPM) - below 48 WPM threshold`
             );
             setRapidTalkingStatus(`🐌 Normal: ${avgWpm.toFixed(1)} WPM`);
             return {
@@ -731,8 +727,12 @@ const Dashboard = () => {
             };
           }
 
-          console.log(`✅ Real fast speech detected: ${avgWpm.toFixed(1)} WPM`);
-          setRapidTalkingStatus(`🚨 Fast speech: ${avgWpm.toFixed(1)} WPM`);
+          console.log(
+            `✅ Rapid talking detected: ${avgWpm.toFixed(
+              1
+            )} WPM (above 48 WPM threshold)`
+          );
+          setRapidTalkingStatus(`🚨 Rapid talking: ${avgWpm.toFixed(1)} WPM`);
         } else {
           console.log(
             `❌ No sufficient speech recognition data (${wpmSeq.length} samples)`
