@@ -15,12 +15,11 @@ export const analyzeBehavior = async (req, res) => {
       return res.json({
         success: true,
         message: "ML analysis temporarily disabled in production",
-        analysis: {
-          behaviors: [],
-          alerts: [],
-          confidence: 0,
-          timestamp: new Date().toISOString(),
-        },
+        behavior_type:
+          req.body.behaviorType || req.body.behavior_type || "unknown",
+        confidence: 0,
+        detected: false,
+        timestamp: new Date().toISOString(),
       });
     }
 
