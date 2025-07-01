@@ -6,24 +6,39 @@ echo "🚀 Starting BeaCompanion Build Process..."
 echo "📦 Installing Node.js dependencies..."
 npm install
 
-# Only install Python dependencies if not in production or if explicitly requested
-if [ "$SKIP_PYTHON" != "true" ]; then
-    echo "🐍 Installing Python dependencies..."
+# Install Python dependencies for ML functionality
+echo "🐍 Installing Python dependencies for ML functionality..."
+
+# Set Python environment variables for better compatibility
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+
+# Try to install Python dependencies with retry logic
+install_python_deps() {
+    echo "Attempting to install Python dependencies..."
     
-    # Try to install Python requirements, but don't fail the build if it doesn't work
-    if command -v python3 &> /dev/null; then
-        echo "Using python3..."
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -r requirements.txt || echo "⚠️  Python packages installation failed, continuing with Node.js only..."
-    elif command -v python &> /dev/null; then
-        echo "Using python..."
-        python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt || echo "⚠️  Python packages installation failed, continuing with Node.js only..."
-    else
-        echo "⚠️  Python not found, skipping Python dependencies..."
-    fi
+    # Update pip to latest version
+    python -m pip install --upgrade pip
+    
+    # Install dependencies with specific flags for Render compatibility
+    python -m pip install -r requirements.txt \
+        --no-cache-dir \
+        --prefer-binary \
+        --only-binary=all \
+        --timeout=300 \
+        --retries=3
+    
+    return $?
+}
+
+# Try installation with fallback
+if install_python_deps; then
+    echo "✅ Python ML dependencies installed successfully!"
+    export ML_ENABLED=true
 else
-    echo "⏭️  Skipping Python dependencies (SKIP_PYTHON=true)"
+    echo "⚠️  Python ML installation failed, but continuing with build..."
+    echo "Application will run with simulated ML responses."
+    export ML_ENABLED=false
 fi
 
 echo "✅ Build process completed!" 

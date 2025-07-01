@@ -1,13 +1,29 @@
 # Minimal requirements for Render deployment
 # Only essential packages that install without compilation issues
 
+# Essential ML dependencies for BeaCompanion behavior detection
+# Using CPU-only versions and specific stable releases for cloud deployment
+
+# Core ML packages
+numpy==1.24.3
+pillow==10.0.1
+
+# PyTorch CPU-only (smaller, faster installation)
+torch==2.0.1+cpu --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.15.2+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# MediaPipe for pose/hand/face detection (essential for behavior analysis)
+mediapipe==0.10.7
+
+# Data processing
+pandas==2.0.3
+
+# ML utilities
+scikit-learn==1.3.0
+
 # Basic utilities
 pyyaml==6.0.1
 
 # Note: ML packages disabled for cloud deployment
 # Uncomment for local development:
-# numpy==1.24.3
-# pandas==2.0.3  
-# scikit-learn==1.3.0
-# torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
 # opencv-python-headless==4.8.0.76

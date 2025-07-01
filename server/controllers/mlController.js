@@ -10,17 +10,15 @@ const __dirname = path.dirname(__filename);
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
-    const isProduction =
-      process.env.NODE_ENV === "production" ||
-      process.env.DISABLE_ML === "true";
+    // First try real ML, even in production
+    const shouldUseSimulation =
+      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
 
-    if (isProduction) {
-      // In production, return a simulated response for now
-      // This can be enhanced to actual ML when Python dependencies are confirmed working
+    if (shouldUseSimulation) {
+      // Fallback to simulation only if ML is explicitly disabled
       const behaviorType =
         req.body.behaviorType || req.body.behavior_type || "unknown";
 
-      // Simulate some basic detection logic without Python
       const mockAnalysis = {
         behavior_type: behaviorType,
         confidence: Math.random() * 0.3, // Low confidence simulation
@@ -35,11 +33,10 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Support both camelCase and snake_case keys coming from frontend / tests
+    // Try real ML analysis
     const behaviorType = req.body.behaviorType || req.body.behavior_type;
     const data =
       req.body.data !== undefined ? req.body.data : req.body.payload || null;
-    // Frame or sequence may come in different casings
     const frame = req.body.frame || req.body.Frame || null;
     const frame_sequence =
       req.body.frame_sequence || req.body.frameSequence || null;
@@ -47,7 +44,6 @@ export const analyzeBehavior = async (req, res) => {
     // Validate request body size
     const contentLength = req.headers["content-length"];
     if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
-      // 50MB limit
       return res.status(413).json({
         success: false,
         message: "Request payload too large. Maximum size is 50MB.",
@@ -86,7 +82,6 @@ export const analyzeBehavior = async (req, res) => {
     // Validate payload size
     const payloadSize = JSON.stringify(payload).length;
     if (payloadSize > 50 * 1024 * 1024) {
-      // 50MB limit
       return res.status(413).json({
         success: false,
         message: "Data payload too large. Maximum size is 50MB.",
@@ -239,10 +234,22 @@ export const analyzeBehavior = async (req, res) => {
         }
 
         console.error("Failed to start Python process:", err);
-        res.status(500).json({
-          success: false,
-          message: "Failed to start ML analysis",
-          error: err.message,
+        console.log("Falling back to simulated ML response...");
+
+        // Graceful fallback to simulation
+        const behaviorType =
+          req.body.behaviorType || req.body.behavior_type || "unknown";
+        const mockAnalysis = {
+          behavior_type: behaviorType,
+          confidence: Math.random() * 0.3,
+          detected: Math.random() > 0.8,
+          timestamp: new Date().toISOString(),
+          message: "Simulated ML analysis (Python ML unavailable)",
+        };
+
+        res.json({
+          success: true,
+          analysis: mockAnalysis,
         });
       });
     } catch (fileError) {
@@ -266,8 +273,11 @@ export const analyzeBehavior = async (req, res) => {
 // Get ML model status
 export const getModelStatus = async (req, res) => {
   try {
-    // Temporary: Return mock status in production
-    if (process.env.NODE_ENV === "production") {
+    // Try real status check first, fall back to mock if ML disabled
+    const shouldUseSimulation =
+      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
+
+    if (shouldUseSimulation) {
       return res.json({
         success: true,
         status: {
@@ -350,8 +360,12 @@ export const getModelStatus = async (req, res) => {
 // Batch analysis for multiple behaviors
 export const batchAnalysis = async (req, res) => {
   try {
-    // Temporary: Return simulated ML responses in production instead of disabling
-    if (process.env.NODE_ENV === "production") {
+    // Try real ML first, only simulate if explicitly disabled
+    const shouldUseSimulation =
+      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
+
+    if (shouldUseSimulation) {
+      // Fallback to simulation only if ML is explicitly disabled
       const { behaviors } = req.body;
 
       if (!behaviors || !Array.isArray(behaviors)) {
@@ -379,6 +393,7 @@ export const batchAnalysis = async (req, res) => {
       });
     }
 
+    // Try real batch ML analysis
     const { behaviors } = req.body;
 
     if (!behaviors || !Array.isArray(behaviors)) {
