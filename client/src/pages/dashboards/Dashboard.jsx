@@ -1373,8 +1373,12 @@ const Dashboard = () => {
                                   "💬 Say something and check console for speech recognition output..."
                                 );
                                 checkMicrophoneStatus();
-                                toast.info(
-                                  "Check browser console for microphone test results"
+                                toast(
+                                  "Check browser console for microphone test results",
+                                  {
+                                    icon: "🎤",
+                                    duration: 4000,
+                                  }
                                 );
                               }}
                               variant="outline"
