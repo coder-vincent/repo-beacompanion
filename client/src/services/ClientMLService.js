@@ -162,7 +162,7 @@ class ClientMLService {
 
   calculateMotion(videoElement) {
     try {
-      if (!videoElement || videoElement.readyState < 2) return 0.05; // Very low baseline
+      if (!videoElement || videoElement.readyState < 2) return 0.1; // Higher baseline
 
       // Motion detection using frame comparison
       const canvas = document.createElement("canvas");
@@ -176,7 +176,7 @@ class ClientMLService {
       if (this.previousFrameData) {
         let significantChanges = 0;
         let totalDiff = 0;
-        const threshold = 20; // Minimum change to count as motion
+        const threshold = 10; // Much lower threshold for more sensitivity
 
         for (let i = 0; i < currentFrame.data.length; i += 4) {
           const rDiff = Math.abs(
@@ -192,7 +192,7 @@ class ClientMLService {
 
           totalDiff += pixelDiff;
 
-          // Count pixels with significant change
+          // Count pixels with significant change (much more sensitive)
           if (pixelDiff > threshold) {
             significantChanges++;
           }
@@ -205,17 +205,18 @@ class ClientMLService {
         const changeRatio = significantChanges / totalPixels;
         const avgDiff = totalDiff / (totalPixels * 255 * 3);
 
-        // Combine both metrics - require both average difference AND significant pixel changes
+        // Much more sensitive motion detection
         let motionLevel = 0;
-        if (changeRatio > 0.02) {
-          // At least 2% of pixels changed significantly
-          motionLevel = Math.min(1, (avgDiff * 2 + changeRatio) * 1.5);
+        if (changeRatio > 0.005) {
+          // Only 0.5% of pixels need to change
+          motionLevel = Math.min(1, (avgDiff * 3 + changeRatio * 2) * 2); // Higher amplification
         } else {
-          motionLevel = Math.min(0.1, avgDiff * 0.5); // Very low motion for minor changes
+          motionLevel = Math.min(0.3, avgDiff * 1.5); // Higher baseline for minor changes
         }
 
-        // Record significant motion events
-        if (motionLevel > 0.3) {
+        // Record motion events more liberally
+        if (motionLevel > 0.15) {
+          // Lower threshold for recording motion
           this.motionHistory.push(Date.now());
           // Keep only recent motion events (last 30 seconds)
           this.motionHistory = this.motionHistory.filter(
@@ -226,10 +227,10 @@ class ClientMLService {
         return motionLevel;
       } else {
         this.previousFrameData = currentFrame;
-        return 0.05; // Low initial value
+        return 0.1; // Higher initial value
       }
     } catch (_error) {
-      return 0.05; // Very low fallback
+      return 0.1; // Higher fallback
     }
   }
 
@@ -372,59 +373,64 @@ class ClientMLService {
   }
 
   detectBehaviorFromFeatures(features, behaviorType) {
-    // Use lightweight algorithms for real behavior detection
+    // Use much lower thresholds to ensure detection happens
     const thresholds = {
-      eye_gaze: 0.5, // Increased to balance with others
-      tapping_hands: 0.4,
-      tapping_feet: 0.4,
-      sit_stand: 0.45,
-      rapid_talking: 0.35,
+      eye_gaze: 0.25, // Much lower
+      tapping_hands: 0.2, // Much lower
+      tapping_feet: 0.2, // Much lower
+      sit_stand: 0.25, // Much lower
+      rapid_talking: 0.2, // Much lower
     };
 
-    const threshold = thresholds[behaviorType] || 0.45;
+    const threshold = thresholds[behaviorType] || 0.25;
 
     // Calculate confidence based on actual features, not random
     let confidence = 0;
 
     switch (behaviorType) {
       case "eye_gaze":
-        // Removed baseline bonus to balance with others
-        confidence = features.motion * 0.7 + (features.eyeMovement || 0) * 0.3;
+        // More generous eye gaze detection
+        confidence = features.motion * 0.6 + (features.eyeMovement || 0) * 0.4;
+        // Add base confidence for any motion
+        if (features.motion > 0.05) confidence += 0.15;
         break;
       case "tapping_hands":
-        // Require actual motion for hand tapping
+        // More generous hand tapping
         confidence =
-          (features.handMotion || features.motion) * 0.7 +
-          features.frequency * 0.3;
+          (features.handMotion || features.motion) * 0.6 +
+          features.frequency * 0.4;
+        if (features.motion > 0.1) confidence += 0.2;
         break;
       case "tapping_feet":
-        // Require actual motion for foot tapping
+        // More generous foot tapping
         confidence =
-          (features.footMotion || features.motion) * 0.7 +
-          features.frequency * 0.3;
+          (features.footMotion || features.motion) * 0.6 +
+          features.frequency * 0.4;
+        if (features.motion > 0.1) confidence += 0.2;
         break;
       case "sit_stand":
-        // Require significant motion for posture changes
+        // More generous posture detection
         confidence =
-          features.motion * 0.8 + (features.postureChange || 0) * 0.2;
+          features.motion * 0.7 + (features.postureChange || 0) * 0.3;
+        if (features.motion > 0.15) confidence += 0.25;
         break;
       default:
         confidence = features.motion * 0.6 + features.intensity * 0.4;
     }
 
-    // Only add small realistic variation, not random detection
-    const variation = (Math.random() - 0.5) * 0.05; // Much smaller variation
+    // Smaller variation
+    const variation = (Math.random() - 0.5) * 0.03;
     confidence = Math.max(0, Math.min(1, confidence + variation));
 
-    // Reduce false positives - only detect if there's actual motion
-    if (features.motion < 0.15) {
-      confidence *= 0.3; // Significantly reduce confidence for low motion
+    // Much less strict motion requirement
+    if (features.motion < 0.05) {
+      confidence *= 0.7; // Less penalty for low motion
     }
 
     // Gradual confidence building over time for persistent behaviors
     const detectionHistory = this.behaviorCounters[behaviorType] || 0;
-    if (detectionHistory > 0 && confidence > threshold * 0.8) {
-      confidence += Math.min(0.1, detectionHistory * 0.02);
+    if (detectionHistory > 0 && confidence > threshold * 0.6) {
+      confidence += Math.min(0.15, detectionHistory * 0.03);
     }
 
     return {

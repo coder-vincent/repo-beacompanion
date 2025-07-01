@@ -655,29 +655,105 @@ const Dashboard = () => {
           if (result.success && result.analysis) {
             const analysis = result.analysis;
 
-            // Update current behaviors state
-            setCurrentBehaviors((prev) => ({
-              ...prev,
-              [analysis.behavior_type]: {
-                detected: analysis.detected,
-                confidence: analysis.confidence,
-              },
-            }));
+            // Update ALL behaviors from comprehensive analysis
+            if (analysis.all_behaviors) {
+              const behaviorUpdates = {};
+              const detectionUpdates = {};
 
-            // Add alert if behavior detected with high confidence
-            if (analysis.detected && analysis.confidence > 0.4) {
-              setAlerts((prev) =>
-                [
-                  ...prev,
-                  {
+              // Process all behaviors, not just the primary one
+              Object.entries(analysis.all_behaviors).forEach(
+                ([behaviorType, behaviorResult]) => {
+                  behaviorUpdates[behaviorType] = {
+                    detected: behaviorResult.detected,
+                    confidence: behaviorResult.confidence,
+                  };
+
+                  // Track detections for behavior data counters
+                  if (behaviorResult.detected) {
+                    detectionUpdates[behaviorType] = {
+                      count: 1,
+                      confidence: behaviorResult.confidence,
+                    };
+                  }
+                }
+              );
+
+              // Update current behaviors state with all behaviors
+              setCurrentBehaviors((prev) => ({
+                ...prev,
+                ...behaviorUpdates,
+              }));
+
+              // Update behavior data counters for all detected behaviors
+              if (Object.keys(detectionUpdates).length > 0) {
+                setBehaviorData((prev) => {
+                  const updated = { ...prev };
+                  Object.entries(detectionUpdates).forEach(
+                    ([behaviorType, detection]) => {
+                      if (!updated[behaviorType]) {
+                        updated[behaviorType] = {
+                          count: 0,
+                          totalConfidence: 0,
+                        };
+                      }
+                      updated[behaviorType].count += detection.count;
+                      updated[behaviorType].totalConfidence +=
+                        detection.confidence;
+                    }
+                  );
+                  return updated;
+                });
+              }
+            } else {
+              // Fallback for single behavior result
+              setCurrentBehaviors((prev) => ({
+                ...prev,
+                [analysis.behavior_type]: {
+                  detected: analysis.detected,
+                  confidence: analysis.confidence,
+                },
+              }));
+
+              if (analysis.detected) {
+                setBehaviorData((prev) => {
+                  const updated = { ...prev };
+                  if (!updated[analysis.behavior_type]) {
+                    updated[analysis.behavior_type] = {
+                      count: 0,
+                      totalConfidence: 0,
+                    };
+                  }
+                  updated[analysis.behavior_type].count += 1;
+                  updated[analysis.behavior_type].totalConfidence +=
+                    analysis.confidence;
+                  return updated;
+                });
+              }
+            }
+
+            // Add alert if any behavior detected with high confidence
+            const alertBehaviors = analysis.all_behaviors
+              ? Object.entries(analysis.all_behaviors).filter(
+                  ([_, result]) => result.detected && result.confidence > 0.3
+                )
+              : analysis.detected && analysis.confidence > 0.3
+              ? [[analysis.behavior_type, analysis]]
+              : [];
+
+            if (alertBehaviors.length > 0) {
+              setAlerts((prev) => {
+                const newAlerts = alertBehaviors.map(
+                  ([behaviorType, behaviorResult]) => ({
                     id: Date.now() + Math.random(),
-                    behavior: analysis.behavior_type,
-                    confidence: analysis.confidence,
+                    behavior: behaviorType,
+                    confidence: behaviorResult.confidence,
                     timestamp: new Date().toISOString(),
-                    message: analysis.message,
-                  },
-                ].slice(-10)
-              ); // Keep only last 10 alerts
+                    message:
+                      behaviorResult.message || `${behaviorType} detected`,
+                  })
+                );
+                return [...prev, ...newAlerts].slice(-10);
+              });
             }
           }
         });
