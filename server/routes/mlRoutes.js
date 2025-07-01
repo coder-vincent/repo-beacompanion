@@ -28,10 +28,10 @@ const mlDataMiddleware = express.json({
 // Test endpoint without auth for debugging
 mlRouter.post("/test-analyze", mlDataMiddleware, analyzeBehavior);
 
-// ML Analysis Routes (with authentication and large payload support)
-mlRouter.post("/analyze", userAuth, mlDataMiddleware, analyzeBehavior);
-mlRouter.get("/status", userAuth, getModelStatus);
-mlRouter.post("/batch", userAuth, mlDataMiddleware, batchAnalysis);
-mlRouter.post("/evaluate", userAuth, mlDataMiddleware, evaluateDataset);
+// ML Analysis Routes (temporarily without authentication for demo)
+mlRouter.post("/analyze", mlDataMiddleware, analyzeBehavior);
+mlRouter.get("/status", getModelStatus);
+mlRouter.post("/batch", mlDataMiddleware, batchAnalysis);
+mlRouter.post("/evaluate", mlDataMiddleware, evaluateDataset);
 
 export default mlRouter;
