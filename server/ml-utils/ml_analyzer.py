@@ -206,6 +206,15 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
 
     model = MODELS[behavior].to(DEVICE)
     print(f"Analyzing {behavior} with data type: {type(data)}", file=sys.stderr)
+    if isinstance(data, list):
+        print(f"Data is list with {len(data)} items", file=sys.stderr)
+        if data and len(data) > 0:
+            print(f"First item type: {type(data[0])}, length: {len(str(data[0])[:100])}", file=sys.stderr)
+    elif isinstance(data, str):
+        print(f"Data is string with length: {len(data)}", file=sys.stderr)
+        print(f"First 100 chars: {data[:100]}", file=sys.stderr)
+    elif isinstance(data, dict):
+        print(f"Data is dict with keys: {list(data.keys())}", file=sys.stderr)
 
     try:
         if behavior == "eye_gaze":

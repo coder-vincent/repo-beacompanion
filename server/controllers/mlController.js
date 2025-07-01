@@ -95,10 +95,28 @@ export const analyzeBehavior = async (req, res) => {
       // Format data for the specific behavior type
       let formattedData;
       if (frame || frame_sequence) {
-        // If we have frame data, format it for the specific behavior type
-        formattedData = {
-          [behaviorType]: frame || frame_sequence,
-        };
+        // Sequence-based behaviors need frame_sequence, others can use single frame
+        const sequenceBehaviors = [
+          "eye_gaze",
+          "tapping_hands",
+          "tapping_feet",
+          "sit_stand",
+        ];
+
+        if (sequenceBehaviors.includes(behaviorType)) {
+          // Use frame_sequence for behaviors that need multiple frames
+          const frames = frame_sequence || (frame ? [frame] : []);
+          console.log(`Sending ${frames.length} frames for ${behaviorType}`);
+          formattedData = {
+            [behaviorType]: frames,
+          };
+        } else {
+          // Use single frame or first frame of sequence for other behaviors
+          const singleFrame = frame || (frame_sequence && frame_sequence[0]);
+          formattedData = {
+            [behaviorType]: singleFrame,
+          };
+        }
       } else if (data) {
         // If we have structured data, format it for the specific behavior type
         formattedData = {
