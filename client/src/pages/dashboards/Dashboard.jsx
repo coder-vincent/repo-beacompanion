@@ -685,20 +685,31 @@ const Dashboard = () => {
             `⚠️ No WPM data (${wpmSeq.length} samples) - using HIGH test data for demonstration`
           );
 
-          // Use random high WPM values to simulate rapid talking for testing
-          const testWpm = 150 + Math.random() * 50; // 150-200 WPM
-          wpmData = [testWpm, testWpm + 10, testWpm - 5]; // 3 samples
+          // Use VERY HIGH WPM values that should definitely trigger detection
+          const testWpm = 180 + Math.random() * 20; // 180-200 WPM (same as our direct test)
+          wpmData = [
+            testWpm,
+            testWpm + 5,
+            testWpm - 3,
+            testWpm + 8,
+            testWpm - 2,
+          ]; // 5 samples like our test
 
           console.log(
-            `🧪 Using HIGH test WPM data: [${wpmData
+            `🧪 Using VERY HIGH test WPM data: [${wpmData
               .map((w) => w.toFixed(1))
               .join(", ")}]`
           );
           console.log(
             "🎯 This should DEFINITELY trigger rapid talking detection!"
           );
+          console.log(
+            `📊 Test WPM average: ${(
+              wpmData.reduce((a, b) => a + b, 0) / wpmData.length
+            ).toFixed(1)} WPM`
+          );
           setRapidTalkingStatus(
-            `🧪 Using test data: ${testWpm.toFixed(1)} WPM`
+            `🧪 Using test data: ${testWpm.toFixed(1)} WPM (HIGH)`
           );
         }
 
@@ -707,6 +718,21 @@ const Dashboard = () => {
           `🔄 Calling Python ML API for rapid talking with data:`,
           wpmData
         );
+        console.log(`📊 WPM Data Details:`, {
+          length: wpmData.length,
+          values: wpmData,
+          average: (
+            wpmData.reduce((a, b) => a + b, 0) / wpmData.length
+          ).toFixed(1),
+          min: Math.min(...wpmData).toFixed(1),
+          max: Math.max(...wpmData).toFixed(1),
+        });
+
+        const requestBody = {
+          behaviorType: behaviorType,
+          data: wpmData,
+        };
+        console.log(`📤 Full request body:`, requestBody);
 
         const response = await fetch(`${backendUrl}/api/ml/analyze`, {
           method: "POST",
@@ -714,10 +740,7 @@ const Dashboard = () => {
             "Content-Type": "application/json",
           },
           credentials: "include",
-          body: JSON.stringify({
-            behaviorType: behaviorType,
-            data: wpmData,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         console.log(
@@ -725,11 +748,14 @@ const Dashboard = () => {
         );
 
         if (!response.ok) {
-          throw new Error(`ML API error: ${response.status}`);
+          const errorText = await response.text();
+          console.error(`❌ API Error Response:`, errorText);
+          throw new Error(`ML API error: ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
         console.log(`✅ Python ML API Response:`, result);
+        console.log(`🔍 Response analysis object:`, result.analysis);
 
         // Enhanced debugging for rapid talking results
         if (result.detected) {
@@ -809,11 +835,24 @@ const Dashboard = () => {
       // DEMO MODE: If no WPM data for rapid talking, set some test data
       if (wpmSeq.length === 0) {
         console.log(
-          "🧪 DEMO MODE: Adding test WPM data for rapid talking demonstration"
+          "🧪 DEMO MODE: Adding HIGH test WPM data for rapid talking demonstration"
         );
-        const demoWpm = 160 + Math.random() * 40; // 160-200 WPM
-        setWpmSeq([demoWpm, demoWpm + 5, demoWpm - 3]);
-        setRapidTalkingStatus(`🧪 Demo mode: ${demoWpm.toFixed(1)} WPM`);
+        const demoWpm = 180 + Math.random() * 20; // 180-200 WPM (same range as direct test)
+        const demoSequence = [
+          demoWpm,
+          demoWpm + 5,
+          demoWpm - 3,
+          demoWpm + 8,
+          demoWpm - 2,
+        ];
+        setWpmSeq(demoSequence);
+        console.log(`🧪 Demo WPM sequence set:`, demoSequence);
+        console.log(
+          `📊 Demo average: ${(
+            demoSequence.reduce((a, b) => a + b, 0) / demoSequence.length
+          ).toFixed(1)} WPM`
+        );
+        setRapidTalkingStatus(`🧪 Demo mode: ${demoWpm.toFixed(1)} WPM (HIGH)`);
       }
 
       let results = [];
