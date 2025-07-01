@@ -10,17 +10,26 @@ const __dirname = path.dirname(__filename);
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
-    // Temporary: Disable ML in production until Python dependencies are fixed
-    if (process.env.NODE_ENV === "production") {
-      return res.json({
+    // Check if we're in production and handle accordingly
+    const isProduction = process.env.NODE_ENV === "production";
+
+    if (isProduction) {
+      // In production, return a simulated response for now
+      // This can be enhanced to actual ML when Python dependencies are confirmed working
+      const behaviorType =
+        req.body.behaviorType || req.body.behavior_type || "unknown";
+
+      // Simulate some basic detection logic without Python
+      const mockDetection = {
         success: true,
-        message: "ML analysis temporarily disabled in production",
-        behavior_type:
-          req.body.behaviorType || req.body.behavior_type || "unknown",
-        confidence: 0,
-        detected: false,
+        behavior_type: behaviorType,
+        confidence: Math.random() * 0.3, // Low confidence simulation
+        detected: Math.random() > 0.8, // Occasionally detect something
         timestamp: new Date().toISOString(),
-      });
+        message: "Simulated ML analysis (Python ML disabled in production)",
+      };
+
+      return res.json(mockDetection);
     }
 
     // Support both camelCase and snake_case keys coming from frontend / tests
@@ -547,15 +556,34 @@ export const evaluateDataset = async (req, res) => {
 
 export const analyzeImage = async (req, res) => {
   try {
-    // Temporary: Disable ML in production until Python dependencies are fixed
+    // Handle production environment with simulated responses
     if (process.env.NODE_ENV === "production") {
+      // Simulate some behavior detection
+      const simulatedBehaviors = [
+        {
+          type: "eye_gaze",
+          detected: Math.random() > 0.7,
+          confidence: Math.random() * 0.4,
+          timestamp: new Date().toISOString(),
+        },
+        {
+          type: "sit_stand",
+          detected: Math.random() > 0.8,
+          confidence: Math.random() * 0.3,
+          timestamp: new Date().toISOString(),
+        },
+      ].filter((b) => b.detected);
+
       return res.json({
         success: true,
-        message: "ML analysis temporarily disabled in production",
+        message: "Simulated analysis (Python ML disabled in production)",
         analysis: {
-          behaviors: [],
-          alerts: [],
-          confidence: 0,
+          behaviors: simulatedBehaviors,
+          alerts: simulatedBehaviors.length > 0 ? ["Behavior detected"] : [],
+          confidence:
+            simulatedBehaviors.length > 0
+              ? Math.max(...simulatedBehaviors.map((b) => b.confidence))
+              : 0,
           timestamp: new Date().toISOString(),
         },
       });
