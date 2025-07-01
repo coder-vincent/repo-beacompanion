@@ -74,7 +74,16 @@ const LoginForm = ({
         if (data.success) {
           toast.success("Logged in successfully!");
           setIsLoggedIn(true);
-          await getUserData();
+
+          // Add a small delay to ensure cookie is set before making the next request
+          console.log(
+            "🍪 LoginForm: Login successful, waiting for cookie to be set..."
+          );
+          setTimeout(async () => {
+            console.log("🍪 LoginForm: Now fetching user data...");
+            await getUserData();
+          }, 100);
+
           navigate("/dashboard");
         } else {
           toast.error(data.message || "Login failed");

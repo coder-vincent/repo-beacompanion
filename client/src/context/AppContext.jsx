@@ -26,6 +26,12 @@ export const AppContextProvider = (props) => {
         "🔍 AppContext: Attempting to fetch user data from:",
         backendUrl + "/api/user/data"
       );
+      console.log(
+        "🔍 AppContext: axios.defaults.withCredentials:",
+        axios.defaults.withCredentials
+      );
+      console.log("🔍 AppContext: document.cookie:", document.cookie);
+
       const { data } = await axios.get(backendUrl + "/api/user/data");
 
       console.log("📊 AppContext: User data response:", data);

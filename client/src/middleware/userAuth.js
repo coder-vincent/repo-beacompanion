@@ -1,13 +1,3 @@
-import jwt from "jsonwebtoken";
-
-// Get JWT secret with fallback
-const getJwtSecret = () => {
-  return (
-    process.env.JWT_SECRET ||
-    "beacompanion_jwt_secret_key_2024_secure_and_random"
-  );
-};
-
 const userAuth = async (req, res, next) => {
   // Prefer cookie token, but also support "Authorization: Bearer <token>" header
   let token = req.cookies?.token;
@@ -51,5 +41,3 @@ const userAuth = async (req, res, next) => {
     res.json({ success: false, message: "Not authorized, login again." });
   }
 };
-
-export default userAuth;
