@@ -645,59 +645,63 @@ const Dashboard = () => {
           }
         }
 
-        // SIMPLIFIED: Require only 1 WPM sample for testing, lower threshold
-        // 🧪 FORCE HIGH WPM FOR TESTING - Always use high test values
+        // REAL DETECTION: Only use actual speech recognition data
         let wpmData;
 
-        console.log(`🧪 FORCING HIGH WPM TEST DATA (ignoring real speech)`);
-        if (wpmSeq.length >= 1) {
+        if (wpmSeq.length >= 3) {
+          // Use recent REAL WPM data from speech recognition
           const recentWpm = wpmSeq.slice(-5);
-          const realAvgWpm =
+          const avgWpm =
             recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
+          wpmData = recentWpm;
+
           console.log(
-            `   📊 Real WPM captured: [${recentWpm
+            `📊 Using REAL WPM data: [${wpmData
               .map((w) => w.toFixed(1))
-              .join(", ")}] (avg: ${realAvgWpm.toFixed(1)} WPM)`
+              .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM)`
           );
+
+          // Only proceed if there's significant speech detected
+          if (avgWpm < 140) {
+            console.log(
+              `🐌 Slow/normal speech (${avgWpm.toFixed(
+                1
+              )} WPM) - no rapid talking`
+            );
+            setRapidTalkingStatus(`🐌 Normal: ${avgWpm.toFixed(1)} WPM`);
+            return {
+              behavior_type: behaviorType,
+              confidence: 0.1,
+              detected: false,
+              timestamp: new Date().toISOString(),
+              message: `Normal speaking pace (${avgWpm.toFixed(1)} WPM)`,
+              wpm: avgWpm,
+            };
+          }
+
+          console.log(`✅ Real fast speech detected: ${avgWpm.toFixed(1)} WPM`);
+          setRapidTalkingStatus(`🚨 Fast speech: ${avgWpm.toFixed(1)} WPM`);
+        } else {
           console.log(
-            `   ⚠️ IGNORING real data - using HIGH test values instead!`
+            `❌ No sufficient speech recognition data (${wpmSeq.length} samples)`
           );
+          console.log(`   Need at least 3 WPM samples for real detection`);
+          console.log(
+            `   Current WPM data: [${wpmSeq
+              .map((w) => w.toFixed(1))
+              .join(", ")}]`
+          );
+
+          // NO FAKE DATA - return no detection if no real speech
+          setRapidTalkingStatus(`⏸️ No speech (${wpmSeq.length} samples)`);
+          return {
+            behavior_type: behaviorType,
+            confidence: 0,
+            detected: false,
+            timestamp: new Date().toISOString(),
+            message: `No speech detected for analysis`,
+          };
         }
-
-        // ALWAYS use high test WPM values regardless of actual speech
-        const testWpm = 185 + Math.random() * 15; // 185-200 WPM range
-        wpmData = [
-          testWpm,
-          testWpm + 8,
-          testWpm - 4,
-          testWpm + 12,
-          testWpm - 6,
-          testWpm + 5,
-        ]; // 6 high WPM samples
-
-        const avgWpm = wpmData.reduce((a, b) => a + b, 0) / wpmData.length;
-
-        console.log(
-          `🧪 FORCED HIGH WPM: [${wpmData
-            .map((w) => w.toFixed(1))
-            .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM)`
-        );
-        console.log(
-          `🎯 This ${avgWpm.toFixed(
-            1
-          )} WPM should DEFINITELY trigger detection!`
-        );
-
-        setRapidTalkingStatus(
-          `🧪 FORCED: ${avgWpm.toFixed(1)} WPM (VERY HIGH)`
-        );
-
-        // Original fallback logic commented out - we're now forcing high WPM always
-        /*
-        Original else block for when no WPM data was available:
-        - Used to generate test data only when wpmSeq.length === 0  
-        - Now we force high WPM data always, regardless of speech recognition
-        */
 
         // Call real Python ML API for rapid talking
         console.log(
@@ -818,28 +822,8 @@ const Dashboard = () => {
 
       console.log("Running real Python ML analysis for all behaviors...");
 
-      // DEMO MODE: If no WPM data for rapid talking, set some test data
-      if (wpmSeq.length === 0) {
-        console.log(
-          "🧪 DEMO MODE: Adding HIGH test WPM data for rapid talking demonstration"
-        );
-        const demoWpm = 180 + Math.random() * 20; // 180-200 WPM (same range as direct test)
-        const demoSequence = [
-          demoWpm,
-          demoWpm + 5,
-          demoWpm - 3,
-          demoWpm + 8,
-          demoWpm - 2,
-        ];
-        setWpmSeq(demoSequence);
-        console.log(`🧪 Demo WPM sequence set:`, demoSequence);
-        console.log(
-          `📊 Demo average: ${(
-            demoSequence.reduce((a, b) => a + b, 0) / demoSequence.length
-          ).toFixed(1)} WPM`
-        );
-        setRapidTalkingStatus(`🧪 Demo mode: ${demoWpm.toFixed(1)} WPM (HIGH)`);
-      }
+      // NO DEMO MODE - only use real speech recognition data
+      // Removed fake WPM data injection to ensure authentic detection
 
       let results = [];
 
