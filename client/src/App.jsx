@@ -5,6 +5,7 @@ import EmailVerify from "./pages/EmailVerify";
 import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 import Dashboard from "./pages/dashboards/Dashboard";
+import { SocketStatus } from "./components/SocketStatus";
 
 const App = () => {
   return (
@@ -17,6 +18,7 @@ const App = () => {
         <Route path="/settings" element={<Settings />} />
         <Route path="/dashboard" element={<Dashboard />} />
       </Routes>
+      <SocketStatus />
     </div>
   );
 };

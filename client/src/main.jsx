@@ -10,8 +10,8 @@ import { Toaster } from "react-hot-toast";
 
 createRoot(document.getElementById("root")).render(
   <BrowserRouter>
-    <AppContextProvider>
-      <SocketProvider>
+    <SocketProvider>
+      <AppContextProvider>
         <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
           <>
             <App />
@@ -29,7 +29,7 @@ createRoot(document.getElementById("root")).render(
             />
           </>
         </ThemeProvider>
-      </SocketProvider>
-    </AppContextProvider>
+      </AppContextProvider>
+    </SocketProvider>
   </BrowserRouter>
 );

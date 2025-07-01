@@ -2,16 +2,23 @@
 import axios from "axios";
 import { createContext, useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { io } from "socket.io-client";
+import { useSocket } from "./SocketContext";
 
 export const AppContext = createContext();
 
 export const AppContextProvider = (props) => {
   axios.defaults.withCredentials = true;
 
-  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const isLocalhost = window.location.hostname === "localhost";
+
+  const backendUrl =
+    import.meta.env.VITE_BACKEND_URL ||
+    (isLocalhost
+      ? "http://localhost:4000"
+      : "https://repo-beacompanion-server.onrender.com");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userData, setUserData] = useState(false);
+  const { socket, isConnected } = useSocket();
 
   const getUserData = useCallback(async () => {
     try {
@@ -36,28 +43,28 @@ export const AppContextProvider = (props) => {
     }
   }, [backendUrl, getUserData]);
 
+  // Set up socket event listeners when socket is available
+  useEffect(() => {
+    if (socket && isConnected) {
+      console.log("Setting up AppContext socket listeners");
+
+      const handleUserListUpdate = () => {
+        console.log("Received userListUpdate event in AppContext");
+        getUserData();
+      };
+
+      socket.on("userListUpdate", handleUserListUpdate);
+
+      // Cleanup function
+      return () => {
+        socket.off("userListUpdate", handleUserListUpdate);
+      };
+    }
+  }, [socket, isConnected, getUserData]);
+
   useEffect(() => {
     getAuthState();
-
-    const socket = io(backendUrl, { withCredentials: true });
-
-    socket.on("connect", () => {
-      console.log("Connected to Socket.IO server from AppContext");
-    });
-
-    socket.on("userListUpdate", () => {
-      console.log("Received userListUpdate event in AppContext");
-      getUserData();
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Disconnected from Socket.IO server from AppContext");
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [backendUrl, getAuthState, getUserData]);
+  }, [getAuthState]);
 
   const value = {
     backendUrl,

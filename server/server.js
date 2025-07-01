@@ -11,8 +11,10 @@ import contentRouter from "./routes/contentRoutes.js";
 import mlRouter from "./routes/mlRoutes.js";
 import sessionRouter from "./routes/sessionRoutes.js";
 
-/* eslint-disable no-console */
-console.log = () => {};
+// Only disable console.log in production, keep it for development debugging
+if (process.env.NODE_ENV === "production") {
+  console.log = () => {};
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -20,13 +22,23 @@ const httpServer = createServer(app);
 // Define allowed origins before using them
 const allowedOrigins =
   process.env.NODE_ENV === "production"
-    ? [process.env.CLIENT_URL] // Set this environment variable in production
-    : ["http://localhost:5173", "http://localhost:5174"];
+    ? [
+        "https://repo-beacompanion.vercel.app", // Vercel frontend
+        process.env.CLIENT_URL, // Additional client URL if set
+      ].filter(Boolean)
+    : [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "https://repo-beacompanion.vercel.app", // Allow Vercel frontend in development too
+        "https://repo-beacompanion-server.onrender.com", // Allow production backend in development
+      ];
 
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins.filter(Boolean), // Remove any undefined values
     credentials: true,
+    methods: ["GET", "POST"],
   },
 });
 
@@ -42,9 +54,11 @@ const initializeServer = async () => {
     console.log("Database models synchronized successfully");
 
     // Start the server
-    httpServer.listen(port, () =>
-      console.log(`Server started on port: ${port}`)
-    );
+    httpServer.listen(port, () => {
+      console.log(`Server started on port: ${port}`);
+      console.log(`CORS allowed origins:`, allowedOrigins);
+      console.log(`Socket.IO server ready`);
+    });
   } catch (error) {
     console.error("Failed to initialize server:", error);
     process.exit(1);
@@ -55,14 +69,28 @@ const initializeServer = async () => {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// Enhanced CORS configuration
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    optionsSuccessStatus: 200,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+  })
+);
 
 // Socket.IO connection handling
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+  socket.on("error", (error) => {
+    console.error("Socket error:", error);
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log("Client disconnected:", socket.id, "Reason:", reason);
   });
 });
 
