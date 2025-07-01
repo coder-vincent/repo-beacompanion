@@ -22,17 +22,39 @@ export const AppContextProvider = (props) => {
 
   const getUserData = useCallback(async () => {
     try {
+      console.log(
+        "🔍 AppContext: Attempting to fetch user data from:",
+        backendUrl + "/api/user/data"
+      );
       const { data } = await axios.get(backendUrl + "/api/user/data");
 
+      console.log("📊 AppContext: User data response:", data);
+
       if (data.success) {
+        console.log(
+          "✅ AppContext: Successfully got user data:",
+          data.userData
+        );
         setUserData(data.userData);
       } else {
-        console.log("Failed to get user data:", data.message);
+        console.error("❌ AppContext: Failed to get user data:", data.message);
         setUserData(null);
+        // If getting user data failed, the user might not be properly authenticated
+        setIsLoggedIn(false);
       }
     } catch (error) {
-      console.log("Error getting user data:", error.message);
+      console.error("🚨 AppContext: Error getting user data:", error);
+      console.error("🚨 AppContext: Error details:", {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+      });
       setUserData(null);
+      // If there's a network error or auth error, treat as not logged in
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        setIsLoggedIn(false);
+      }
     }
   }, [backendUrl]);
 
