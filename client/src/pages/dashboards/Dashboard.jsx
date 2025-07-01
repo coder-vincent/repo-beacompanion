@@ -222,12 +222,14 @@ const Dashboard = () => {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const frameData = canvas.toDataURL("image/jpeg", 0.8);
 
-        // For sequence-based models, capture multiple frames
+        // For sequence-based models, capture multiple frames with proper timing
         const frameSequence = [];
         for (let i = 0; i < 10; i++) {
           ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          frameSequence.push(canvas.toDataURL("image/jpeg", 0.6));
-          await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay between frames
+          frameSequence.push(canvas.toDataURL("image/jpeg", 0.7));
+          // Wait for next video frame (roughly 33ms for 30fps)
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await new Promise((resolve) => setTimeout(resolve, 150)); // 150ms between frames for better sequence
         }
 
         // Call real Python ML API
@@ -249,7 +251,15 @@ const Dashboard = () => {
         }
 
         const result = await response.json();
-        console.log(`Real Python ML result for ${behaviorType}:`, result);
+        console.log(`✅ Python ML detected ${behaviorType}:`, result);
+
+        // Add visual feedback for successful detection
+        if (result.detected) {
+          console.log(
+            `🎯 BEHAVIOR DETECTED: ${behaviorType} (confidence: ${result.confidence})`
+          );
+        }
+
         return result.analysis || result;
       } else if (behaviorType === "rapid_talking") {
         // Audio-based behavior analysis
@@ -296,7 +306,15 @@ const Dashboard = () => {
         }
 
         const result = await response.json();
-        console.log(`Real Python ML result for rapid_talking:`, result);
+        console.log(`✅ Python ML detected rapid_talking:`, result);
+
+        // Add visual feedback for successful detection
+        if (result.detected) {
+          console.log(
+            `🎯 RAPID TALKING DETECTED! (confidence: ${result.confidence})`
+          );
+        }
+
         return result.analysis || result;
       }
 
@@ -393,7 +411,7 @@ const Dashboard = () => {
 
         // Create alert if confidence is high enough
         const confidence = result.confidence || result.probability || 0;
-        if (result.detected && confidence > 0.7) {
+        if (result.detected && confidence > 0.4) {
           const alert = {
             id: Date.now() + Math.random(),
             behavior: behaviorType,
@@ -401,6 +419,15 @@ const Dashboard = () => {
             timestamp: new Date().toISOString(),
           };
           newAlerts.unshift(alert);
+
+          // Console notification for high confidence detections
+          if (confidence > 0.6) {
+            console.log(
+              `🚨 HIGH CONFIDENCE DETECTION: ${behaviorType} (${(
+                confidence * 100
+              ).toFixed(1)}%)`
+            );
+          }
 
           // Keep only last 10 alerts
           if (newAlerts.length > 10) {
@@ -653,15 +680,18 @@ const Dashboard = () => {
 
       // Start real Python ML analysis at regular intervals
       const analysisInterval = setInterval(() => {
-        console.log("Running scheduled Python ML analysis...");
+        console.log("🔍 Running scheduled Python ML analysis...");
         runBehavioralAnalysis();
-      }, 3000); // Faster analysis for better responsiveness
+      }, 2000); // Faster analysis for better responsiveness (every 2 seconds)
       setAnalysisIntervalId(analysisInterval);
       setTimeout(() => {
-        console.log("Running initial analysis...");
+        console.log("🎬 Running initial Python ML analysis...");
         runBehavioralAnalysis();
       }, 2000);
-      toast.success("Monitoring session started successfully");
+      console.log(
+        "🚀 Real-time ADHD behavior detection ACTIVE using Python ML models!"
+      );
+      toast.success("Monitoring session started - Python ML detection active");
     } catch (_e) {
       /* ignored start monitoring error */
       let errorMessage = "Could not access camera.";
