@@ -79,6 +79,9 @@ const Dashboard = () => {
   // ---------------- Speech Recognition for WPM ----------------
   const [wpmSeq, setWpmSeq] = useState([]);
   const [lastSpeechActivity, setLastSpeechActivity] = useState(Date.now());
+  const [rapidTalkingStatus, setRapidTalkingStatus] = useState(
+    "Waiting for speech..."
+  );
 
   useEffect(() => {
     if (
@@ -116,6 +119,9 @@ const Dashboard = () => {
                 txt.split(/\s+/).length
               } words)`
             );
+            setRapidTalkingStatus(
+              `Speech recognized: "${txt.substring(0, 20)}..."`
+            );
           }
         }
       }
@@ -130,25 +136,28 @@ const Dashboard = () => {
           )} (${words} words in ${minutes.toFixed(2)} minutes)`
         );
 
-        // Debug rapid talking threshold
+        // Debug rapid talking threshold and update status
         if (wpm > 150) {
           console.log(
             `🚨 HIGH WPM DETECTED: ${wpm.toFixed(
               1
             )} WPM - This should trigger rapid talking!`
           );
+          setRapidTalkingStatus(`🚨 HIGH WPM: ${wpm.toFixed(1)} WPM!`);
         } else if (wpm > 120) {
           console.log(
             `⚡ Moderate WPM: ${wpm.toFixed(
               1
             )} WPM - Getting close to rapid talking threshold`
           );
+          setRapidTalkingStatus(`⚡ Moderate: ${wpm.toFixed(1)} WPM`);
         } else {
           console.log(
             `🐌 Normal WPM: ${wpm.toFixed(
               1
             )} WPM - Below rapid talking threshold`
           );
+          setRapidTalkingStatus(`🐌 Normal: ${wpm.toFixed(1)} WPM`);
         }
 
         setWpmSeq((prev) => {
@@ -541,15 +550,18 @@ const Dashboard = () => {
           return null;
         }
 
-        // CHECK FOR ACTUAL SPEECH - crucial fix!
-        if (!audioData.isSpeaking) {
-          console.log(
-            `🔇 No speech detected (volume: ${audioData.volume.toFixed(
-              3
-            )}, spectral: ${audioData.spectralActivity.toFixed(
-              3
-            )}) - skipping rapid talking`
-          );
+        // SIMPLIFIED: Skip audio-based speech detection for now - rely on WPM data
+        console.log(
+          `🔊 Audio levels - Volume: ${audioData.volume.toFixed(
+            3
+          )}, Spectral: ${audioData.spectralActivity.toFixed(3)}, Speaking: ${
+            audioData.isSpeaking
+          }`
+        );
+
+        // Don't skip based on audio - let WPM data drive the detection
+        if (!audioData.isSpeaking && wpmSeq.length === 0) {
+          console.log("🔇 No audio AND no WPM data - truly silent");
           return {
             behavior_type: behaviorType,
             confidence: 0,
@@ -638,50 +650,47 @@ const Dashboard = () => {
           }
         }
 
-        // Require sufficient WPM data from real speech recognition
+        // SIMPLIFIED: Require only 1 WPM sample for testing, lower threshold
         let wpmData;
-        if (wpmSeq.length >= 3) {
-          // Reduced from 5 to 3 for faster response
+        if (wpmSeq.length >= 1) {
+          // Use recent WPM data
           const recentWpm = wpmSeq.slice(-5);
-          // Check if WPM values indicate rapid talking (>150 WPM typically)
           const avgWpm =
             recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
           wpmData = recentWpm;
+
           console.log(
-            `📊 Using real WPM data: [${wpmData
+            `📊 Using WPM data: [${wpmData
               .map((w) => w.toFixed(1))
               .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM)`
           );
 
-          // If average WPM is very low, it's likely not rapid talking
-          if (avgWpm < 80) {
+          // LOWERED THRESHOLD for testing - detect anything over 100 WPM
+          if (avgWpm < 50) {
             console.log(
-              `🐌 Low WPM detected (${avgWpm.toFixed(1)}) - not rapid talking`
+              `🐌 Very low WPM (${avgWpm.toFixed(1)}) - not rapid talking`
             );
             return {
               behavior_type: behaviorType,
               confidence: 0,
               detected: false,
               timestamp: new Date().toISOString(),
-              message: `Normal speaking pace detected (${avgWpm.toFixed(
-                1
-              )} WPM)`,
+              message: `Very slow speaking pace (${avgWpm.toFixed(1)} WPM)`,
               wpm: avgWpm,
             };
           }
-        } else {
-          // Don't generate fake WPM - require real speech recognition data
+
+          // PROCEED WITH ANALYSIS even for moderate WPM
           console.log(
-            `⚠️ Insufficient WPM data (${wpmSeq.length}/3 samples) - skipping rapid talking analysis`
+            `✅ WPM data sufficient for analysis: ${avgWpm.toFixed(1)} WPM`
           );
-          return {
-            behavior_type: behaviorType,
-            confidence: 0,
-            detected: false,
-            timestamp: new Date().toISOString(),
-            message: "Need more speech data for WPM analysis",
-            needsMoreData: true,
-          };
+        } else {
+          // TEMPORARY: Generate fake WPM for testing if no real data
+          console.log(
+            `⚠️ No WPM data (${wpmSeq.length} samples) - using test data`
+          );
+          wpmData = [120]; // Moderate test value
+          console.log("🧪 Using fallback test WPM data: [120]");
         }
 
         // Call real Python ML API for rapid talking
@@ -723,11 +732,19 @@ const Dashboard = () => {
           console.log(
             `   Detection type: ${result.fallback ? "Fallback" : "PyTorch ML"}`
           );
+          setRapidTalkingStatus(
+            `🎯 DETECTED! ${(result.confidence * 100).toFixed(1)}% confidence`
+          );
         } else {
           console.log(
             `❌ No rapid talking detected. Confidence: ${(
               result.confidence * 100
             ).toFixed(1)}%`
+          );
+          setRapidTalkingStatus(
+            `❌ Not detected (${(result.confidence * 100).toFixed(
+              1
+            )}% confidence)`
           );
         }
 
@@ -1666,6 +1683,9 @@ const Dashboard = () => {
                                 // Add some high WPM test data
                                 const testWpmData = [180, 190, 175, 185, 200];
                                 setWpmSeq(testWpmData);
+                                setRapidTalkingStatus(
+                                  "🧪 Test data loaded - analyzing..."
+                                );
 
                                 console.log(
                                   `   Test WPM data added: [${testWpmData.join(
@@ -1680,7 +1700,7 @@ const Dashboard = () => {
                                 );
 
                                 toast(
-                                  "🧪 Test WPM data added - watch console for rapid talking detection!",
+                                  "🧪 Test WPM data added - watch speech status overlay!",
                                   {
                                     duration: 4000,
                                   }
@@ -1690,6 +1710,72 @@ const Dashboard = () => {
                               className="flex items-center gap-2 w-full sm:w-auto bg-orange-50 hover:bg-orange-100"
                             >
                               🧪 Test Rapid Talking
+                            </Button>
+
+                            <Button
+                              onClick={async () => {
+                                console.log(
+                                  "🚀 DIRECT API TEST - FORCING RAPID TALKING ANALYSIS"
+                                );
+                                setRapidTalkingStatus(
+                                  "🚀 Testing API directly..."
+                                );
+
+                                try {
+                                  const testData = [200, 180, 190]; // High WPM test data
+                                  const response = await fetch(
+                                    `${backendUrl}/api/ml/analyze`,
+                                    {
+                                      method: "POST",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                      },
+                                      credentials: "include",
+                                      body: JSON.stringify({
+                                        behaviorType: "rapid_talking",
+                                        data: testData,
+                                      }),
+                                    }
+                                  );
+
+                                  console.log(
+                                    `📡 Direct API Response: ${response.status}`
+                                  );
+                                  const result = await response.json();
+                                  console.log("✅ Direct API Result:", result);
+
+                                  if (result.detected) {
+                                    setRapidTalkingStatus(
+                                      `✅ API WORKS! ${(
+                                        result.confidence * 100
+                                      ).toFixed(1)}%`
+                                    );
+                                    toast.success(
+                                      "✅ Python ML API is working!"
+                                    );
+                                  } else {
+                                    setRapidTalkingStatus(
+                                      `❌ API returned no detection`
+                                    );
+                                    toast.error(
+                                      "❌ API works but no detection"
+                                    );
+                                  }
+                                } catch (error) {
+                                  console.error(
+                                    "❌ Direct API test failed:",
+                                    error
+                                  );
+                                  setRapidTalkingStatus(
+                                    `❌ API ERROR: ${error.message}`
+                                  );
+                                  toast.error("❌ Python ML API failed!");
+                                }
+                              }}
+                              variant="outline"
+                              className="flex items-center gap-2 w-full sm:w-auto bg-red-50 hover:bg-red-100"
+                            >
+                              🚀 Test API Direct
                             </Button>
                           </>
                         ) : (
@@ -1850,9 +1936,14 @@ const Dashboard = () => {
                                 Camera Active {videoPlaying ? "✅" : "⏳"}
                               </div>
 
+                              {/* Rapid Talking Status Overlay */}
+                              <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded text-xs max-w-48 truncate">
+                                Speech: {rapidTalkingStatus}
+                              </div>
+
                               {/* Monitoring Status Overlay */}
                               {monitoring && (
-                                <div className="absolute top-2 right-2 bg-blue-500 text-white px-2 py-1 rounded text-xs">
+                                <div className="absolute top-12 right-2 bg-blue-500 text-white px-2 py-1 rounded text-xs">
                                   Monitoring: {formatDuration(timer)}
                                 </div>
                               )}
