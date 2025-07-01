@@ -151,53 +151,62 @@ const Dashboard = () => {
         }
 
         const minutes = (Date.now() - sessionStart) / 60000; // ms->minutes
-        if (minutes > 0.083) {
-          // ~5 seconds
+        if (minutes > 0.025) {
+          // 1.5 seconds (much faster than 5 seconds for real-time detection)
           const wpm = words / minutes;
           console.log(
-            `📈 Calculated WPM: ${wpm.toFixed(
+            `📈 REAL-TIME WPM: ${wpm.toFixed(
               1
             )} (${words} words in ${minutes.toFixed(2)} minutes)`
           );
 
-          // Debug rapid talking threshold and update status
-          if (wpm > 150) {
+          // IMMEDIATE rapid talking detection and ML analysis
+          if (wpm > 140) {
             console.log(
-              `🚨 HIGH WPM DETECTED: ${wpm.toFixed(
-                1
-              )} WPM - This should trigger rapid talking!`
+              `🚨 RAPID TALKING DETECTED REAL-TIME: ${wpm.toFixed(1)} WPM!`
             );
-            setRapidTalkingStatus(`🚨 HIGH WPM: ${wpm.toFixed(1)} WPM!`);
+            setRapidTalkingStatus(`🚨 RAPID TALKING: ${wpm.toFixed(1)} WPM!`);
+
+            // TRIGGER IMMEDIATE ML ANALYSIS for rapid talking
+            setWpmSeq((prev) => {
+              const newArr = [...prev, wpm].slice(-10);
+              console.log(
+                `📊 Real-time WPM update: [${newArr
+                  .map((w) => w.toFixed(1))
+                  .join(", ")}]`
+              );
+
+              // Trigger rapid talking analysis immediately if we have enough samples
+              if (newArr.length >= 2) {
+                console.log("🚀 TRIGGERING IMMEDIATE RAPID TALKING ANALYSIS");
+                setTimeout(() => {
+                  analyzeBehavior("rapid_talking");
+                }, 50); // Immediate analysis
+              }
+
+              return newArr;
+            });
           } else if (wpm > 120) {
-            console.log(
-              `⚡ Moderate WPM: ${wpm.toFixed(
-                1
-              )} WPM - Getting close to rapid talking threshold`
-            );
-            setRapidTalkingStatus(`⚡ Moderate: ${wpm.toFixed(1)} WPM`);
+            console.log(`⚡ Fast speech detected: ${wpm.toFixed(1)} WPM`);
+            setRapidTalkingStatus(`⚡ Fast: ${wpm.toFixed(1)} WPM`);
+
+            setWpmSeq((prev) => {
+              const newArr = [...prev, wpm].slice(-10);
+              return newArr;
+            });
           } else {
-            console.log(
-              `🐌 Normal WPM: ${wpm.toFixed(
-                1
-              )} WPM - Below rapid talking threshold`
-            );
+            console.log(`🐌 Normal speech: ${wpm.toFixed(1)} WPM`);
             setRapidTalkingStatus(`🐌 Normal: ${wpm.toFixed(1)} WPM`);
+
+            setWpmSeq((prev) => {
+              const newArr = [...prev, wpm].slice(-10);
+              return newArr;
+            });
           }
 
-          setWpmSeq((prev) => {
-            const arr = [...prev, wpm];
-            console.log(
-              `📊 Updated WPM sequence: [${arr
-                .map((w) => w.toFixed(1))
-                .join(", ")}]`
-            );
-            return arr.slice(-10); // keep last 10 values
-          });
-          // reset counters every 5s window to get quicker updates
-          if (minutes > 0.083) {
-            sessionStart = Date.now();
-            words = 0;
-          }
+          // Reset counters every 1.5 seconds for continuous real-time updates
+          sessionStart = Date.now();
+          words = 0;
         }
       };
 
