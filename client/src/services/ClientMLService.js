@@ -155,10 +155,9 @@ class ClientMLService {
 
   calculateMotion(videoElement) {
     try {
-      if (!videoElement || videoElement.readyState < 2)
-        return Math.random() * 0.4 + 0.1;
+      if (!videoElement || videoElement.readyState < 2) return 0.05; // Very low baseline
 
-      // Simple motion detection using frame comparison
+      // Motion detection using frame comparison
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = 64;
@@ -168,8 +167,10 @@ class ClientMLService {
       const currentFrame = ctx.getImageData(0, 0, 64, 64);
 
       if (this.previousFrameData) {
-        let diff = 0;
-        let pixelChanges = 0;
+        let significantChanges = 0;
+        let totalDiff = 0;
+        const threshold = 20; // Minimum change to count as motion
+
         for (let i = 0; i < currentFrame.data.length; i += 4) {
           const rDiff = Math.abs(
             currentFrame.data[i] - this.previousFrameData.data[i]
@@ -180,29 +181,48 @@ class ClientMLService {
           const bDiff = Math.abs(
             currentFrame.data[i + 2] - this.previousFrameData.data[i + 2]
           );
-          const totalDiff = rDiff + gDiff + bDiff;
+          const pixelDiff = rDiff + gDiff + bDiff;
 
-          if (totalDiff > 30) {
-            // Threshold for significant change
-            pixelChanges++;
+          totalDiff += pixelDiff;
+
+          // Count pixels with significant change
+          if (pixelDiff > threshold) {
+            significantChanges++;
           }
-          diff += totalDiff;
         }
 
-        const motionLevel = (diff / (64 * 64 * 255 * 3)) * 3; // Normalize and amplify
-        const changeRatio = pixelChanges / (64 * 64); // Ratio of changed pixels
-
         this.previousFrameData = currentFrame;
 
-        // Combine motion level and change ratio for more sensitive detection
-        const finalMotion = Math.min(1, (motionLevel + changeRatio) * 1.5);
-        return Math.max(0.1, finalMotion); // Ensure minimum motion for realistic behavior
+        // Calculate motion based on both total difference and significant changes
+        const totalPixels = 64 * 64;
+        const changeRatio = significantChanges / totalPixels;
+        const avgDiff = totalDiff / (totalPixels * 255 * 3);
+
+        // Combine both metrics - require both average difference AND significant pixel changes
+        let motionLevel = 0;
+        if (changeRatio > 0.02) {
+          // At least 2% of pixels changed significantly
+          motionLevel = Math.min(1, (avgDiff * 2 + changeRatio) * 1.5);
+        } else {
+          motionLevel = Math.min(0.1, avgDiff * 0.5); // Very low motion for minor changes
+        }
+
+        // Record significant motion events
+        if (motionLevel > 0.3) {
+          this.motionHistory.push(Date.now());
+          // Keep only recent motion events (last 30 seconds)
+          this.motionHistory = this.motionHistory.filter(
+            (t) => Date.now() - t < 30000
+          );
+        }
+
+        return motionLevel;
       } else {
         this.previousFrameData = currentFrame;
-        return 0.2; // Default motion level
+        return 0.05; // Low initial value
       }
     } catch (_error) {
-      return Math.random() * 0.4 + 0.1;
+      return 0.05; // Very low fallback
     }
   }
 
@@ -268,111 +288,138 @@ class ClientMLService {
   }
 
   detectPatterns(behaviorType) {
-    // Behavior-specific pattern detection with more realistic values
-    const now = Date.now();
-    const timeFactor = Math.sin(now / 1000) * 0.1; // Add temporal variation
+    // Make patterns based on actual motion history rather than random
+    const basePattern = 0.1; // Low base value
 
-    const patterns = {
-      eye_gaze: Math.random() * 0.5 + 0.2 + timeFactor,
-      tapping_hands: Math.random() * 0.7 + 0.3 + timeFactor,
-      tapping_feet: Math.random() * 0.6 + 0.2 + timeFactor,
-      sit_stand: Math.random() * 0.4 + 0.2 + timeFactor,
-      rapid_talking: Math.random() * 0.8 + 0.2 + timeFactor,
-    };
-
-    // Add motion history influence for more realistic patterns
+    // Calculate pattern strength from motion history
+    let patternStrength = basePattern;
     if (this.motionHistory.length > 3) {
-      const recentMotion =
-        this.motionHistory.slice(-3).reduce((a, b) => a + 1, 0) / 3;
-      patterns[behaviorType] *= 1 + recentMotion * 0.3;
+      const recentMotions = this.motionHistory.slice(-5);
+      const avgMotion = recentMotions.length / 5; // Frequency of recent motions
+      patternStrength = basePattern + avgMotion * 0.4;
     }
 
-    return Math.min(1, patterns[behaviorType] || Math.random() * 0.5 + 0.2);
+    // Behavior-specific adjustments
+    const multipliers = {
+      eye_gaze: 0.8,
+      tapping_hands: 1.2,
+      tapping_feet: 1.0,
+      sit_stand: 0.6,
+      rapid_talking: 1.4,
+    };
+
+    const multiplier = multipliers[behaviorType] || 1.0;
+    const finalPattern = Math.min(0.8, patternStrength * multiplier);
+
+    // Add minimal time-based variation for realism
+    const timeVariation = Math.sin(Date.now() / 10000) * 0.05;
+
+    return Math.max(0.05, finalPattern + timeVariation);
   }
 
   detectEyeMovement(imageData) {
-    // More realistic eye movement detection with variance
-    const baseMovement = Math.random() * 0.6 + 0.2;
-    const motionBonus = this.motionHistory.length > 0 ? 0.2 : 0;
-    return Math.min(1, baseMovement + motionBonus);
+    // Base eye movement on actual motion detection
+    const motionCount = this.motionHistory.length;
+    const baseMovement = Math.min(0.6, motionCount * 0.1 + 0.1);
+
+    // Add small realistic variation
+    const variation = Math.random() * 0.1;
+    return Math.min(0.8, baseMovement + variation);
   }
 
   detectHandMotion(imageData) {
-    // Enhanced hand motion detection
-    const motion = this.calculateMotion(imageData);
-    const amplified = motion * 1.8; // Increased amplification for hand detection
-    return Math.min(1, amplified + Math.random() * 0.2);
+    // Enhanced hand motion detection based on actual video analysis
+    const actualMotion = this.calculateMotion(imageData);
+
+    // Only amplify if there's real motion
+    if (actualMotion > 0.2) {
+      return Math.min(0.9, actualMotion * 2.0); // Strong amplification for real motion
+    } else {
+      return Math.max(0.05, actualMotion * 0.5); // Minimal response for low motion
+    }
   }
 
   detectFootMotion(imageData) {
-    // Enhanced foot motion detection
-    const motion = this.calculateMotion(imageData);
-    const amplified = motion * 1.5; // Amplify for foot detection
-    return Math.min(1, amplified + Math.random() * 0.15);
+    // Enhanced foot motion detection based on actual video analysis
+    const actualMotion = this.calculateMotion(imageData);
+
+    // Only amplify if there's real motion
+    if (actualMotion > 0.25) {
+      return Math.min(0.8, actualMotion * 1.8); // Strong amplification for real motion
+    } else {
+      return Math.max(0.05, actualMotion * 0.4); // Minimal response for low motion
+    }
   }
 
   detectPostureChange(imageData) {
-    // More dynamic posture change detection
-    const baseChange = Math.random() * 0.5 + 0.2;
-    const motionInfluence = this.motionHistory.length > 2 ? 0.3 : 0;
-    return Math.min(1, baseChange + motionInfluence);
+    // Base posture change on significant motion events
+    const recentMotionEvents = this.motionHistory.filter(
+      (t) => Date.now() - t < 5000
+    ).length;
+
+    if (recentMotionEvents > 2) {
+      return Math.min(0.7, 0.3 + recentMotionEvents * 0.1);
+    } else {
+      return Math.max(0.05, recentMotionEvents * 0.05);
+    }
   }
 
   detectBehaviorFromFeatures(features, behaviorType) {
     // Use lightweight algorithms for real behavior detection
     const thresholds = {
-      eye_gaze: 0.35,
-      tapping_hands: 0.3,
-      tapping_feet: 0.3,
-      sit_stand: 0.4,
-      rapid_talking: 0.25,
+      eye_gaze: 0.45,
+      tapping_hands: 0.4,
+      tapping_feet: 0.4,
+      sit_stand: 0.5,
+      rapid_talking: 0.35,
     };
 
-    const threshold = thresholds[behaviorType] || 0.35;
+    const threshold = thresholds[behaviorType] || 0.45;
 
-    // Calculate confidence based on features
+    // Calculate confidence based on actual features, not random
     let confidence = 0;
 
     switch (behaviorType) {
       case "eye_gaze":
+        // Base confidence on actual motion and minimal randomness
         confidence =
-          (features.eyeMovement || 0.2) * 0.5 +
-          features.motion * 0.3 +
-          features.frequency * 0.2;
+          features.motion * 0.6 + (features.eyeMovement || 0.1) * 0.4;
         break;
       case "tapping_hands":
+        // Require actual motion for hand tapping
         confidence =
-          (features.handMotion || 0.2) * 0.6 +
-          features.pattern * 0.2 +
-          features.frequency * 0.2;
+          (features.handMotion || features.motion) * 0.7 +
+          features.frequency * 0.3;
         break;
       case "tapping_feet":
+        // Require actual motion for foot tapping
         confidence =
-          (features.footMotion || 0.2) * 0.6 +
-          features.pattern * 0.2 +
-          features.frequency * 0.2;
+          (features.footMotion || features.motion) * 0.7 +
+          features.frequency * 0.3;
         break;
       case "sit_stand":
+        // Require significant motion for posture changes
         confidence =
-          (features.postureChange || 0.2) * 0.7 + features.motion * 0.3;
+          features.motion * 0.8 + (features.postureChange || 0.1) * 0.2;
         break;
       default:
-        confidence =
-          features.motion * 0.4 +
-          features.intensity * 0.3 +
-          features.pattern * 0.3;
+        confidence = features.motion * 0.6 + features.intensity * 0.4;
     }
 
-    // Add realistic variation but keep it meaningful
-    const variation = (Math.random() - 0.5) * 0.15;
+    // Only add small realistic variation, not random detection
+    const variation = (Math.random() - 0.5) * 0.05; // Much smaller variation
     confidence = Math.max(0, Math.min(1, confidence + variation));
 
-    // Increase detection likelihood over time for realistic behavior
-    const timeBonus = Math.min(
-      0.1,
-      (this.behaviorCounters[behaviorType] || 0) * 0.01
-    );
-    confidence += timeBonus;
+    // Reduce false positives - only detect if there's actual motion
+    if (features.motion < 0.15) {
+      confidence *= 0.3; // Significantly reduce confidence for low motion
+    }
+
+    // Gradual confidence building over time for persistent behaviors
+    const detectionHistory = this.behaviorCounters[behaviorType] || 0;
+    if (detectionHistory > 0 && confidence > threshold * 0.8) {
+      confidence += Math.min(0.1, detectionHistory * 0.02);
+    }
 
     return {
       confidence: confidence,
