@@ -92,160 +92,203 @@ const Dashboard = () => {
     }
 
     console.log("🎤 Initializing Speech Recognition for WPM detection...");
+    setRapidTalkingStatus("🔄 Starting speech recognition...");
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognizer = new SpeechRecognition();
-    recognizer.continuous = true;
-    recognizer.lang = "en-US";
-
-    let sessionStart = Date.now();
-    let words = 0;
-
-    recognizer.onstart = () => {
-      console.log("🟢 Speech Recognition started successfully");
-    };
-
-    recognizer.onresult = (e) => {
-      setLastSpeechActivity(Date.now()); // Update last speech activity
-
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) {
-          const txt = e.results[i][0].transcript.trim();
-          if (txt.length > 0) {
-            words += txt.split(/\s+/).length;
-            console.log(
-              `🎙️ Speech recognized: "${txt}" (${
-                txt.split(/\s+/).length
-              } words)`
-            );
-            setRapidTalkingStatus(
-              `Speech recognized: "${txt.substring(0, 20)}..."`
-            );
-          }
-        }
-      }
-
-      const minutes = (Date.now() - sessionStart) / 60000; // ms->minutes
-      if (minutes > 0.083) {
-        // ~5 seconds
-        const wpm = words / minutes;
-        console.log(
-          `📈 Calculated WPM: ${wpm.toFixed(
-            1
-          )} (${words} words in ${minutes.toFixed(2)} minutes)`
-        );
-
-        // Debug rapid talking threshold and update status
-        if (wpm > 150) {
-          console.log(
-            `🚨 HIGH WPM DETECTED: ${wpm.toFixed(
-              1
-            )} WPM - This should trigger rapid talking!`
-          );
-          setRapidTalkingStatus(`🚨 HIGH WPM: ${wpm.toFixed(1)} WPM!`);
-        } else if (wpm > 120) {
-          console.log(
-            `⚡ Moderate WPM: ${wpm.toFixed(
-              1
-            )} WPM - Getting close to rapid talking threshold`
-          );
-          setRapidTalkingStatus(`⚡ Moderate: ${wpm.toFixed(1)} WPM`);
-        } else {
-          console.log(
-            `🐌 Normal WPM: ${wpm.toFixed(
-              1
-            )} WPM - Below rapid talking threshold`
-          );
-          setRapidTalkingStatus(`🐌 Normal: ${wpm.toFixed(1)} WPM`);
-        }
-
-        setWpmSeq((prev) => {
-          const arr = [...prev, wpm];
-          console.log(
-            `📊 Updated WPM sequence: [${arr
-              .map((w) => w.toFixed(1))
-              .join(", ")}]`
-          );
-          return arr.slice(-10); // keep last 10 values
+    // First, explicitly request microphone permission
+    const requestMicrophonePermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
         });
-        // reset counters every 5s window to get quicker updates
-        if (minutes > 0.083) {
-          sessionStart = Date.now();
-          words = 0;
-        }
+        console.log("✅ Microphone permission granted");
+        setRapidTalkingStatus("✅ Microphone permission granted");
+        stream.getTracks().forEach((track) => track.stop()); // Stop the test stream
+        return true;
+      } catch (error) {
+        console.error("❌ Microphone permission denied:", error);
+        setRapidTalkingStatus("❌ Microphone access denied - click to allow");
+        return false;
       }
     };
 
-    recognizer.onerror = (event) => {
-      console.error("🔴 Speech Recognition error:", event.error);
+    const startSpeechRecognition = async () => {
+      const micGranted = await requestMicrophonePermission();
+      if (!micGranted) return;
 
-      switch (event.error) {
-        case "not-allowed":
-          console.error("❌ Microphone permission denied!");
-          console.log(
-            "🔧 To fix: Click the microphone icon in your browser's address bar and allow microphone access"
-          );
-          break;
-        case "no-speech":
-          // Silently ignore no-speech errors - they're expected when not talking
-          return;
-        case "audio-capture":
-          console.error(
-            "❌ Audio capture failed - microphone might be in use by another app"
-          );
-          console.log(
-            "🔧 To fix: Close other apps using your microphone (Zoom, Teams, etc.)"
-          );
-          break;
-        case "network":
-          console.error("❌ Network error during speech recognition");
-          break;
-        case "service-not-allowed":
-          console.error("❌ Speech recognition service not allowed");
-          break;
-        default:
-          console.error(`❌ Speech recognition error: ${event.error}`);
-      }
-    };
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognizer = new SpeechRecognition();
+      recognizer.continuous = true;
+      recognizer.lang = "en-US";
+      recognizer.interimResults = true; // Get partial results for faster feedback
 
-    recognizer.onend = () => {
-      console.log("🔄 Speech Recognition ended, restarting...");
-      // Restart speech recognition if it stops, with a small delay to prevent rapid restarts
-      setTimeout(() => {
-        try {
-          recognizer.start();
-          console.log("✅ Speech Recognition restarted successfully");
-        } catch (error) {
-          console.error("Failed to restart speech recognition:", error);
-          // Try again after a longer delay
-          setTimeout(() => {
-            try {
-              recognizer.start();
-              console.log("✅ Speech Recognition restarted on second attempt");
-            } catch (retryError) {
-              console.error(
-                "Speech recognition restart failed completely:",
-                retryError
+      let sessionStart = Date.now();
+      let words = 0;
+
+      recognizer.onstart = () => {
+        console.log("🟢 Speech Recognition started successfully");
+        setRapidTalkingStatus("🎤 Listening for speech... (speak now)");
+      };
+
+      recognizer.onresult = (e) => {
+        setLastSpeechActivity(Date.now()); // Update last speech activity
+
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+          if (e.results[i].isFinal) {
+            const txt = e.results[i][0].transcript.trim();
+            if (txt.length > 0) {
+              words += txt.split(/\s+/).length;
+              console.log(
+                `🎙️ Speech recognized: "${txt}" (${
+                  txt.split(/\s+/).length
+                } words)`
+              );
+              setRapidTalkingStatus(
+                `Speech recognized: "${txt.substring(0, 20)}..."`
               );
             }
-          }, 2000);
+          }
         }
-      }, 100);
+
+        const minutes = (Date.now() - sessionStart) / 60000; // ms->minutes
+        if (minutes > 0.083) {
+          // ~5 seconds
+          const wpm = words / minutes;
+          console.log(
+            `📈 Calculated WPM: ${wpm.toFixed(
+              1
+            )} (${words} words in ${minutes.toFixed(2)} minutes)`
+          );
+
+          // Debug rapid talking threshold and update status
+          if (wpm > 150) {
+            console.log(
+              `🚨 HIGH WPM DETECTED: ${wpm.toFixed(
+                1
+              )} WPM - This should trigger rapid talking!`
+            );
+            setRapidTalkingStatus(`🚨 HIGH WPM: ${wpm.toFixed(1)} WPM!`);
+          } else if (wpm > 120) {
+            console.log(
+              `⚡ Moderate WPM: ${wpm.toFixed(
+                1
+              )} WPM - Getting close to rapid talking threshold`
+            );
+            setRapidTalkingStatus(`⚡ Moderate: ${wpm.toFixed(1)} WPM`);
+          } else {
+            console.log(
+              `🐌 Normal WPM: ${wpm.toFixed(
+                1
+              )} WPM - Below rapid talking threshold`
+            );
+            setRapidTalkingStatus(`🐌 Normal: ${wpm.toFixed(1)} WPM`);
+          }
+
+          setWpmSeq((prev) => {
+            const arr = [...prev, wpm];
+            console.log(
+              `📊 Updated WPM sequence: [${arr
+                .map((w) => w.toFixed(1))
+                .join(", ")}]`
+            );
+            return arr.slice(-10); // keep last 10 values
+          });
+          // reset counters every 5s window to get quicker updates
+          if (minutes > 0.083) {
+            sessionStart = Date.now();
+            words = 0;
+          }
+        }
+      };
+
+      recognizer.onerror = (event) => {
+        console.error("🔴 Speech Recognition error:", event.error);
+
+        switch (event.error) {
+          case "not-allowed":
+            console.error("❌ Microphone permission denied!");
+            console.log(
+              "🔧 To fix: Click the microphone icon in your browser's address bar and allow microphone access"
+            );
+            break;
+          case "no-speech":
+            // Silently ignore no-speech errors - they're expected when not talking
+            return;
+          case "audio-capture":
+            console.error(
+              "❌ Audio capture failed - microphone might be in use by another app"
+            );
+            console.log(
+              "🔧 To fix: Close other apps using your microphone (Zoom, Teams, etc.)"
+            );
+            break;
+          case "network":
+            console.error("❌ Network error during speech recognition");
+            break;
+          case "service-not-allowed":
+            console.error("❌ Speech recognition service not allowed");
+            break;
+          default:
+            console.error(`❌ Speech recognition error: ${event.error}`);
+        }
+      };
+
+      recognizer.onend = () => {
+        console.log("🔄 Speech Recognition ended, restarting...");
+        // Restart speech recognition if it stops, with a small delay to prevent rapid restarts
+        setTimeout(() => {
+          try {
+            recognizer.start();
+            console.log("✅ Speech Recognition restarted successfully");
+          } catch (error) {
+            console.error("Failed to restart speech recognition:", error);
+            // Try again after a longer delay
+            setTimeout(() => {
+              try {
+                recognizer.start();
+                console.log(
+                  "✅ Speech Recognition restarted on second attempt"
+                );
+              } catch (retryError) {
+                console.error(
+                  "Speech recognition restart failed completely:",
+                  retryError
+                );
+              }
+            }, 2000);
+          }
+        }, 100);
+      };
+
+      try {
+        recognizer.start();
+        console.log("🚀 Attempting to start speech recognition...");
+      } catch (error) {
+        console.error("🔴 Failed to start Speech Recognition:", error);
+        setRapidTalkingStatus(`❌ Start failed: ${error.message}`);
+      }
+
+      return recognizer;
     };
 
-    try {
-      recognizer.start();
-    } catch (error) {
-      console.error("🔴 Failed to start Speech Recognition:", error);
-    }
+    // Start the speech recognition
+    const recognizerPromise = startSpeechRecognition();
 
     return () => {
-      try {
-        recognizer.stop();
-      } catch (error) {
-        console.error("Error stopping speech recognition:", error);
-      }
+      recognizerPromise
+        .then((recognizer) => {
+          if (recognizer) {
+            try {
+              recognizer.stop();
+              console.log("🛑 Speech Recognition stopped");
+            } catch (error) {
+              console.error("Error stopping speech recognition:", error);
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("Error in cleanup:", error);
+        });
     };
   }, []);
 
