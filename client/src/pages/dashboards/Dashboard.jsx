@@ -81,8 +81,14 @@ const Dashboard = () => {
   const [lastSpeechActivity, setLastSpeechActivity] = useState(Date.now());
 
   useEffect(() => {
-    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window))
+    if (
+      !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
+    ) {
+      console.warn("⚠️ Speech Recognition not supported in this browser");
       return;
+    }
+
+    console.log("🎤 Initializing Speech Recognition for WPM detection...");
 
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -93,16 +99,24 @@ const Dashboard = () => {
     let sessionStart = Date.now();
     let words = 0;
 
+    recognizer.onstart = () => {
+      console.log("🟢 Speech Recognition started successfully");
+    };
+
     recognizer.onresult = (e) => {
       setLastSpeechActivity(Date.now()); // Update last speech activity
 
       for (let i = e.resultIndex; i < e.results.length; ++i) {
         if (e.results[i].isFinal) {
           const txt = e.results[i][0].transcript.trim();
-          words += txt.split(/\s+/).length;
-          console.log(
-            `🎙️ Speech recognized: "${txt}" (${txt.split(/\s+/).length} words)`
-          );
+          if (txt.length > 0) {
+            words += txt.split(/\s+/).length;
+            console.log(
+              `🎙️ Speech recognized: "${txt}" (${
+                txt.split(/\s+/).length
+              } words)`
+            );
+          }
         }
       }
 
@@ -127,10 +141,36 @@ const Dashboard = () => {
       }
     };
 
-    recognizer.onerror = () => {};
-    recognizer.start();
+    recognizer.onerror = (event) => {
+      console.error("🔴 Speech Recognition error:", event.error);
+      if (event.error === "not-allowed") {
+        console.error("❌ Microphone permission denied!");
+      }
+    };
 
-    return () => recognizer.stop();
+    recognizer.onend = () => {
+      console.log("🔄 Speech Recognition ended, restarting...");
+      // Restart speech recognition if it stops
+      try {
+        recognizer.start();
+      } catch (error) {
+        console.error("Failed to restart speech recognition:", error);
+      }
+    };
+
+    try {
+      recognizer.start();
+    } catch (error) {
+      console.error("🔴 Failed to start Speech Recognition:", error);
+    }
+
+    return () => {
+      try {
+        recognizer.stop();
+      } catch (error) {
+        console.error("Error stopping speech recognition:", error);
+      }
+    };
   }, []);
 
   // Clear old WPM data after 30 seconds of silence
@@ -169,6 +209,46 @@ const Dashboard = () => {
       toast.error(
         "Microphone access denied – rapid talking detection disabled"
       );
+    }
+  };
+
+  // Check microphone permissions and capabilities
+  const checkMicrophoneStatus = async () => {
+    try {
+      // Check if Web Speech API is supported
+      const speechSupported =
+        "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+      console.log(`🎤 Speech Recognition supported: ${speechSupported}`);
+
+      // Check microphone permission
+      if (navigator.permissions) {
+        const permission = await navigator.permissions.query({
+          name: "microphone",
+        });
+        console.log(`🎤 Microphone permission: ${permission.state}`);
+
+        permission.onchange = () => {
+          console.log(
+            `🔄 Microphone permission changed to: ${permission.state}`
+          );
+        };
+      }
+
+      // Test if we can access microphone
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        console.log("✅ Microphone access granted");
+        stream.getTracks().forEach((track) => track.stop()); // Clean up
+        return true;
+      } catch (error) {
+        console.error("❌ Microphone access failed:", error);
+        return false;
+      }
+    } catch (error) {
+      console.error("Error checking microphone status:", error);
+      return false;
     }
   };
 
@@ -345,6 +425,46 @@ const Dashboard = () => {
             3
           )}, spectral: ${audioData.spectralActivity.toFixed(3)})`
         );
+
+        // DEBUG: Check current WPM data status
+        console.log(
+          `📊 Current WPM data: [${wpmSeq
+            .map((w) => w.toFixed(1))
+            .join(", ")}] (${wpmSeq.length} samples)`
+        );
+
+        // FALLBACK: If speech recognition isn't working but we detect audio activity
+        if (wpmSeq.length === 0 && audioData.volume > 0.05) {
+          console.log(
+            "⚠️ Speech detected but no WPM data from speech recognition"
+          );
+          console.log(
+            "🔄 Using audio activity as fallback for rapid talking detection"
+          );
+
+          // Use high audio activity as an indicator of rapid speech
+          const activityScore =
+            (audioData.volume + audioData.spectralActivity) / 2;
+          if (activityScore > 0.1) {
+            const estimatedConfidence = Math.min(0.6, activityScore * 4); // Max 60% confidence
+            console.log(
+              `🎯 Audio-based rapid talking detection: ${(
+                estimatedConfidence * 100
+              ).toFixed(1)}% confidence`
+            );
+
+            return {
+              behavior_type: behaviorType,
+              confidence: estimatedConfidence,
+              detected: estimatedConfidence > 0.3,
+              timestamp: new Date().toISOString(),
+              message:
+                "Audio-based rapid talking detection (speech recognition unavailable)",
+              fallback: true,
+              audioActivity: activityScore,
+            };
+          }
+        }
 
         // Require sufficient WPM data from real speech recognition
         let wpmData;
@@ -577,6 +697,7 @@ const Dashboard = () => {
       loadSessionHistory();
     }
     checkCameraAvailability();
+    checkMicrophoneStatus();
   }, [userData?.id]);
 
   // Cleanup effect to stop camera when component unmounts
@@ -1225,6 +1346,52 @@ const Dashboard = () => {
                             >
                               <Settings className="h-4 w-4" />
                               Advanced Test
+                            </Button>
+
+                            <Button
+                              onClick={() => {
+                                console.log(
+                                  "🔍 Manual Microphone & Speech Test:"
+                                );
+                                console.log(
+                                  `Speech Recognition available: ${
+                                    "webkitSpeechRecognition" in window ||
+                                    "SpeechRecognition" in window
+                                  }`
+                                );
+                                console.log(
+                                  `Current WPM data: [${wpmSeq
+                                    .map((w) => w.toFixed(1))
+                                    .join(", ")}] (${wpmSeq.length} samples)`
+                                );
+                                console.log(
+                                  `Last speech activity: ${new Date(
+                                    lastSpeechActivity
+                                  ).toLocaleTimeString()}`
+                                );
+                                console.log(
+                                  "💬 Say something and check console for speech recognition output..."
+                                );
+                                checkMicrophoneStatus();
+                                toast.info(
+                                  "Check browser console for microphone test results"
+                                );
+                              }}
+                              variant="outline"
+                              className="flex items-center gap-2 w-full sm:w-auto bg-blue-50 hover:bg-blue-100"
+                            >
+                              <svg
+                                className="h-4 w-4"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              Test Microphone
                             </Button>
                           </>
                         ) : (
