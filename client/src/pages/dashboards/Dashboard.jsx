@@ -78,6 +78,7 @@ const Dashboard = () => {
 
   // ---------------- Speech Recognition for WPM ----------------
   const [wpmSeq, setWpmSeq] = useState([]);
+  const [lastSpeechActivity, setLastSpeechActivity] = useState(Date.now());
 
   useEffect(() => {
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window))
@@ -93,10 +94,15 @@ const Dashboard = () => {
     let words = 0;
 
     recognizer.onresult = (e) => {
+      setLastSpeechActivity(Date.now()); // Update last speech activity
+
       for (let i = e.resultIndex; i < e.results.length; ++i) {
         if (e.results[i].isFinal) {
           const txt = e.results[i][0].transcript.trim();
           words += txt.split(/\s+/).length;
+          console.log(
+            `🎙️ Speech recognized: "${txt}" (${txt.split(/\s+/).length} words)`
+          );
         }
       }
 
@@ -104,6 +110,11 @@ const Dashboard = () => {
       if (minutes > 0.083) {
         // ~5 seconds
         const wpm = words / minutes;
+        console.log(
+          `📈 Calculated WPM: ${wpm.toFixed(
+            1
+          )} (${words} words in ${minutes.toFixed(2)} minutes)`
+        );
         setWpmSeq((prev) => {
           const arr = [...prev, wpm];
           return arr.slice(-10); // keep last 10 values
@@ -121,6 +132,20 @@ const Dashboard = () => {
 
     return () => recognizer.stop();
   }, []);
+
+  // Clear old WPM data after 30 seconds of silence
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const timeSinceLastSpeech = Date.now() - lastSpeechActivity;
+      if (timeSinceLastSpeech > 30000 && wpmSeq.length > 0) {
+        // 30 seconds
+        console.log("🧹 Clearing stale WPM data after 30 seconds of silence");
+        setWpmSeq([]);
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [lastSpeechActivity, wpmSeq.length]);
 
   // Helper to start microphone stream
   const initAudio = async () => {
@@ -147,7 +172,7 @@ const Dashboard = () => {
     }
   };
 
-  // Extract simple audio features (6 numbers)
+  // Extract audio features and detect actual speech
   const getAudioFeatures = () => {
     const analyser = audioAnalyserRef.current;
     const dataArray = audioDataArrayRef.current;
@@ -178,8 +203,21 @@ const Dashboard = () => {
     }
     const zcr = zeroCross / dataArray.length; // 0-1
 
-    // Fill remaining features with placeholder 0s for now
-    return [rms, spectralAvg, zcr, 0, 0, 0];
+    // SPEECH DETECTION: Check if there's actual speech activity
+    const speechThreshold = 0.03; // Minimum RMS for speech (increased from 0.02)
+    const spectralThreshold = 0.08; // Minimum spectral activity for speech (increased from 0.05)
+    const combinedActivity = (rms + spectralAvg) / 2; // Combined activity metric
+    const isSpeaking =
+      rms > speechThreshold &&
+      spectralAvg > spectralThreshold &&
+      combinedActivity > 0.04;
+
+    return {
+      features: [rms, spectralAvg, zcr, 0, 0, 0],
+      isSpeaking: isSpeaking,
+      volume: rms,
+      spectralActivity: spectralAvg,
+    };
   };
 
   // Capture a sequence of frames from the video element
@@ -276,30 +314,82 @@ const Dashboard = () => {
 
         return result.analysis || result;
       } else if (behaviorType === "rapid_talking") {
-        // Audio-based behavior analysis
-        const audioFeatures = getAudioFeatures();
-        if (!audioFeatures) {
+        // Audio-based behavior analysis - only when actually speaking
+        const audioData = getAudioFeatures();
+        if (!audioData) {
           console.log("Skipping rapid_talking: no audio input");
           return null;
         }
 
-        // Use actual WPM data if available, otherwise estimate from audio features
-        let wpmData;
-        if (wpmSeq.length >= 5) {
-          const recentWpm = wpmSeq.slice(-5);
-          wpmData = recentWpm;
-        } else {
-          // Generate WPM estimates from audio features
-          const estWpm = Math.round(
-            (audioFeatures[1] + audioFeatures[2]) * 150 + 90
+        // CHECK FOR ACTUAL SPEECH - crucial fix!
+        if (!audioData.isSpeaking) {
+          console.log(
+            `🔇 No speech detected (volume: ${audioData.volume.toFixed(
+              3
+            )}, spectral: ${audioData.spectralActivity.toFixed(
+              3
+            )}) - skipping rapid talking`
           );
-          wpmData = [
-            estWpm,
-            estWpm * 0.9,
-            estWpm * 1.1,
-            estWpm * 0.95,
-            estWpm * 1.05,
-          ];
+          return {
+            behavior_type: behaviorType,
+            confidence: 0,
+            detected: false,
+            timestamp: new Date().toISOString(),
+            message: "No speech detected - silent period",
+            silent: true,
+          };
+        }
+
+        console.log(
+          `🗣️ Speech detected! (volume: ${audioData.volume.toFixed(
+            3
+          )}, spectral: ${audioData.spectralActivity.toFixed(3)})`
+        );
+
+        // Require sufficient WPM data from real speech recognition
+        let wpmData;
+        if (wpmSeq.length >= 3) {
+          // Reduced from 5 to 3 for faster response
+          const recentWpm = wpmSeq.slice(-5);
+          // Check if WPM values indicate rapid talking (>150 WPM typically)
+          const avgWpm =
+            recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
+          wpmData = recentWpm;
+          console.log(
+            `📊 Using real WPM data: [${wpmData
+              .map((w) => w.toFixed(1))
+              .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM)`
+          );
+
+          // If average WPM is very low, it's likely not rapid talking
+          if (avgWpm < 80) {
+            console.log(
+              `🐌 Low WPM detected (${avgWpm.toFixed(1)}) - not rapid talking`
+            );
+            return {
+              behavior_type: behaviorType,
+              confidence: 0,
+              detected: false,
+              timestamp: new Date().toISOString(),
+              message: `Normal speaking pace detected (${avgWpm.toFixed(
+                1
+              )} WPM)`,
+              wpm: avgWpm,
+            };
+          }
+        } else {
+          // Don't generate fake WPM - require real speech recognition data
+          console.log(
+            `⚠️ Insufficient WPM data (${wpmSeq.length}/3 samples) - skipping rapid talking analysis`
+          );
+          return {
+            behavior_type: behaviorType,
+            confidence: 0,
+            detected: false,
+            timestamp: new Date().toISOString(),
+            message: "Need more speech data for WPM analysis",
+            needsMoreData: true,
+          };
         }
 
         // Call real Python ML API for rapid talking
