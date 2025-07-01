@@ -143,19 +143,63 @@ const Dashboard = () => {
 
     recognizer.onerror = (event) => {
       console.error("🔴 Speech Recognition error:", event.error);
-      if (event.error === "not-allowed") {
-        console.error("❌ Microphone permission denied!");
+
+      switch (event.error) {
+        case "not-allowed":
+          console.error("❌ Microphone permission denied!");
+          console.log(
+            "🔧 To fix: Click the microphone icon in your browser's address bar and allow microphone access"
+          );
+          break;
+        case "no-speech":
+          console.warn(
+            "⚠️ No speech detected - this is normal when you're not talking"
+          );
+          console.log("💡 Try speaking clearly near your microphone");
+          // Don't treat this as a fatal error - it's normal when quiet
+          return;
+        case "audio-capture":
+          console.error(
+            "❌ Audio capture failed - microphone might be in use by another app"
+          );
+          console.log(
+            "🔧 To fix: Close other apps using your microphone (Zoom, Teams, etc.)"
+          );
+          break;
+        case "network":
+          console.error("❌ Network error during speech recognition");
+          break;
+        case "service-not-allowed":
+          console.error("❌ Speech recognition service not allowed");
+          break;
+        default:
+          console.error(`❌ Speech recognition error: ${event.error}`);
       }
     };
 
     recognizer.onend = () => {
       console.log("🔄 Speech Recognition ended, restarting...");
-      // Restart speech recognition if it stops
-      try {
-        recognizer.start();
-      } catch (error) {
-        console.error("Failed to restart speech recognition:", error);
-      }
+      // Restart speech recognition if it stops, with a small delay to prevent rapid restarts
+      setTimeout(() => {
+        try {
+          recognizer.start();
+          console.log("✅ Speech Recognition restarted successfully");
+        } catch (error) {
+          console.error("Failed to restart speech recognition:", error);
+          // Try again after a longer delay
+          setTimeout(() => {
+            try {
+              recognizer.start();
+              console.log("✅ Speech Recognition restarted on second attempt");
+            } catch (retryError) {
+              console.error(
+                "Speech recognition restart failed completely:",
+                retryError
+              );
+            }
+          }, 2000);
+        }
+      }, 100);
     };
 
     try {
@@ -236,14 +280,83 @@ const Dashboard = () => {
 
       // Test if we can access microphone
       try {
+        console.log("🔍 Testing microphone access...");
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
         });
+
         console.log("✅ Microphone access granted");
-        stream.getTracks().forEach((track) => track.stop()); // Clean up
+
+        // Test audio levels
+        const audioContext = new (window.AudioContext ||
+          window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        // Monitor audio levels for 2 seconds
+        let maxVolume = 0;
+        const testDuration = 2000; // 2 seconds
+        const startTime = Date.now();
+
+        const checkAudio = () => {
+          analyser.getByteFrequencyData(dataArray);
+          const volume =
+            dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+          maxVolume = Math.max(maxVolume, volume);
+
+          if (Date.now() - startTime < testDuration) {
+            requestAnimationFrame(checkAudio);
+          } else {
+            console.log(
+              `🔊 Audio level test complete. Max volume detected: ${maxVolume.toFixed(
+                1
+              )}/255`
+            );
+            if (maxVolume < 10) {
+              console.warn(
+                "⚠️ Very low audio levels detected. Try speaking louder or checking microphone settings."
+              );
+            } else if (maxVolume > 50) {
+              console.log("✅ Good audio levels detected!");
+            } else {
+              console.log("📊 Moderate audio levels detected.");
+            }
+
+            // Clean up
+            audioContext.close();
+            stream.getTracks().forEach((track) => track.stop());
+          }
+        };
+
+        console.log("🎤 Speak now to test your microphone levels...");
+        checkAudio();
+
         return true;
       } catch (error) {
         console.error("❌ Microphone access failed:", error);
+
+        if (error.name === "NotAllowedError") {
+          console.log(
+            "🔧 Fix: Click the microphone icon in your browser's address bar and allow microphone access"
+          );
+        } else if (error.name === "NotFoundError") {
+          console.log(
+            "🔧 Fix: Check that a microphone is connected to your computer"
+          );
+        } else if (error.name === "NotReadableError") {
+          console.log(
+            "🔧 Fix: Your microphone might be in use by another application"
+          );
+        }
+
         return false;
       }
     } catch (error) {
@@ -1349,35 +1462,92 @@ const Dashboard = () => {
                             </Button>
 
                             <Button
-                              onClick={() => {
+                              onClick={async () => {
+                                console.log("\n" + "=".repeat(50));
                                 console.log(
-                                  "🔍 Manual Microphone & Speech Test:"
+                                  "🔍 COMPREHENSIVE MICROPHONE & SPEECH TEST"
                                 );
+                                console.log("=".repeat(50));
+
+                                // 1. Browser capability check
+                                console.log("\n1️⃣ BROWSER CAPABILITIES:");
+                                const speechSupported =
+                                  "webkitSpeechRecognition" in window ||
+                                  "SpeechRecognition" in window;
                                 console.log(
-                                  `Speech Recognition available: ${
-                                    "webkitSpeechRecognition" in window ||
-                                    "SpeechRecognition" in window
+                                  `   Speech Recognition: ${
+                                    speechSupported
+                                      ? "✅ Supported"
+                                      : "❌ Not supported"
                                   }`
                                 );
                                 console.log(
-                                  `Current WPM data: [${wpmSeq
-                                    .map((w) => w.toFixed(1))
-                                    .join(", ")}] (${wpmSeq.length} samples)`
+                                  `   getUserMedia: ${
+                                    navigator.mediaDevices
+                                      ? "✅ Supported"
+                                      : "❌ Not supported"
+                                  }`
                                 );
                                 console.log(
-                                  `Last speech activity: ${new Date(
+                                  `   AudioContext: ${
+                                    window.AudioContext ||
+                                    window.webkitAudioContext
+                                      ? "✅ Supported"
+                                      : "❌ Not supported"
+                                  }`
+                                );
+
+                                // 2. Current speech data status
+                                console.log("\n2️⃣ CURRENT SPEECH DATA:");
+                                console.log(
+                                  `   WPM Samples: [${wpmSeq
+                                    .map((w) => w.toFixed(1))
+                                    .join(", ")}] (${wpmSeq.length} total)`
+                                );
+                                console.log(
+                                  `   Last Speech Activity: ${new Date(
                                     lastSpeechActivity
                                   ).toLocaleTimeString()}`
                                 );
                                 console.log(
-                                  "💬 Say something and check console for speech recognition output..."
+                                  `   Time Since Last Speech: ${(
+                                    (Date.now() - lastSpeechActivity) /
+                                    1000
+                                  ).toFixed(1)}s ago`
                                 );
-                                checkMicrophoneStatus();
+
+                                // 3. Run microphone test
+                                console.log("\n3️⃣ MICROPHONE ACCESS TEST:");
+                                const micResult = await checkMicrophoneStatus();
+
+                                // 4. Instructions
+                                console.log("\n4️⃣ NEXT STEPS:");
+                                if (speechSupported && micResult) {
+                                  console.log("   ✅ Everything looks good!");
+                                  console.log(
+                                    "   💬 Try speaking clearly and watch for speech recognition logs"
+                                  );
+                                  console.log(
+                                    "   📊 WPM data should appear within 5-10 seconds of speaking"
+                                  );
+                                } else {
+                                  console.log(
+                                    "   ❌ Issues detected - see error messages above"
+                                  );
+                                }
+
+                                console.log("\n" + "=".repeat(50));
+
                                 toast(
-                                  "Check browser console for microphone test results",
+                                  speechSupported && micResult
+                                    ? "✅ Microphone test complete - speak now to test recognition!"
+                                    : "❌ Issues found - check console for details",
                                   {
-                                    icon: "🎤",
-                                    duration: 4000,
+                                    icon:
+                                      speechSupported && micResult
+                                        ? "✅"
+                                        : "❌",
+                                    duration: 5000,
                                   }
                                 );
                               }}
