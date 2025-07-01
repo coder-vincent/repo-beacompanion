@@ -10,8 +10,9 @@ const __dirname = path.dirname(__filename);
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
-    // Check if we're in production and handle accordingly
-    const isProduction = process.env.NODE_ENV === "production";
+    const isProduction =
+      process.env.NODE_ENV === "production" ||
+      process.env.DISABLE_ML === "true";
 
     if (isProduction) {
       // In production, return a simulated response for now
@@ -20,8 +21,7 @@ export const analyzeBehavior = async (req, res) => {
         req.body.behaviorType || req.body.behavior_type || "unknown";
 
       // Simulate some basic detection logic without Python
-      const mockDetection = {
-        success: true,
+      const mockAnalysis = {
         behavior_type: behaviorType,
         confidence: Math.random() * 0.3, // Low confidence simulation
         detected: Math.random() > 0.8, // Occasionally detect something
@@ -29,7 +29,10 @@ export const analyzeBehavior = async (req, res) => {
         message: "Simulated ML analysis (Python ML disabled in production)",
       };
 
-      return res.json(mockDetection);
+      return res.json({
+        success: true,
+        analysis: mockAnalysis,
+      });
     }
 
     // Support both camelCase and snake_case keys coming from frontend / tests
@@ -347,12 +350,32 @@ export const getModelStatus = async (req, res) => {
 // Batch analysis for multiple behaviors
 export const batchAnalysis = async (req, res) => {
   try {
-    // Temporary: Disable ML in production until Python dependencies are fixed
+    // Temporary: Return simulated ML responses in production instead of disabling
     if (process.env.NODE_ENV === "production") {
+      const { behaviors } = req.body;
+
+      if (!behaviors || !Array.isArray(behaviors)) {
+        return res.status(400).json({
+          success: false,
+          message: "Behaviors array is required",
+        });
+      }
+
+      // Generate simulated results for each behavior
+      const simulatedResults = behaviors.map((behavior) => {
+        const behaviorType = behavior.type || "unknown";
+        return {
+          behavior_type: behaviorType,
+          confidence: Math.random() * 0.3, // Low confidence simulation
+          detected: Math.random() > 0.8, // Occasionally detect something
+          timestamp: new Date().toISOString(),
+          message: "Simulated ML analysis (Python ML disabled in production)",
+        };
+      });
+
       return res.json({
         success: true,
-        message: "Batch analysis temporarily disabled in production",
-        results: [],
+        results: simulatedResults,
       });
     }
 
