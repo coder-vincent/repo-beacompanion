@@ -5,6 +5,7 @@ import EmailVerify from "./pages/EmailVerify";
 import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 import Dashboard from "./pages/dashboards/Dashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
 import { SocketStatus } from "./components/SocketStatus";
 
 const App = () => {
@@ -16,7 +17,14 @@ const App = () => {
         <Route path="/email-verify" element={<EmailVerify />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
       <SocketStatus />
     </div>

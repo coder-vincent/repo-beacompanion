@@ -1,7 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import axios from "axios";
 import { createContext, useEffect, useState, useCallback } from "react";
-import toast from "react-hot-toast";
 import { useSocket } from "./SocketContext";
 
 export const AppContext = createContext();
@@ -16,19 +15,26 @@ export const AppContextProvider = (props) => {
     (isLocalhost
       ? "http://localhost:4000"
       : "https://repo-beacompanion-server.onrender.com");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userData, setUserData] = useState(false);
+
+  const [isLoggedIn, setIsLoggedIn] = useState(null); // null = loading, true = logged in, false = not logged in
+  const [userData, setUserData] = useState(null);
   const { socket, isConnected } = useSocket();
 
   const getUserData = useCallback(async () => {
     try {
       const { data } = await axios.get(backendUrl + "/api/user/data");
 
-      data.success ? setUserData(data.userData) : toast.error(data.message);
+      if (data.success) {
+        setUserData(data.userData);
+      } else {
+        console.log("Failed to get user data:", data.message);
+        setUserData(null);
+      }
     } catch (error) {
-      toast.error(error.message);
+      console.log("Error getting user data:", error.message);
+      setUserData(null);
     }
-  }, [backendUrl, setUserData]);
+  }, [backendUrl]);
 
   const getAuthState = useCallback(async () => {
     try {
@@ -37,9 +43,15 @@ export const AppContextProvider = (props) => {
       if (data.success) {
         setIsLoggedIn(true);
         getUserData();
+      } else {
+        console.log("Not authenticated:", data.message);
+        setIsLoggedIn(false);
+        setUserData(null);
       }
     } catch (error) {
-      toast.error(error.message);
+      console.log("Auth check error:", error.message);
+      setIsLoggedIn(false);
+      setUserData(null);
     }
   }, [backendUrl, getUserData]);
 
