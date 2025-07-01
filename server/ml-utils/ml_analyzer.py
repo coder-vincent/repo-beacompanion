@@ -407,29 +407,57 @@ def main() -> None:
     args = parser.parse_args()
 
     if not os.path.exists(args.data):
-        print(json.dumps({"error": f"Data file not found: {args.data}"}), file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Data file not found: {args.data}"
+        print(error_msg, file=sys.stderr)
+        fallback_result = {"detected": False, "confidence": 0.0, "error": error_msg, "fallback": True}
+        sys.stdout.write(json.dumps(fallback_result))
+        return
 
     try:
         with open(args.data, "r", encoding="utf-8") as fp:
             payload = json.load(fp)
     except Exception as exc:
-        print(json.dumps({"error": f"Failed to read input file: {exc}"}), file=sys.stderr)
-        sys.exit(1)
+        error_msg = f"Failed to read input file: {exc}"
+        print(error_msg, file=sys.stderr)
+        fallback_result = {"detected": False, "confidence": 0.0, "error": error_msg, "fallback": True}
+        sys.stdout.write(json.dumps(fallback_result))
+        return
 
     # Extract behaviour-specific data from payload; the controller wrapped it
     data = payload.get(args.behavior, payload)
 
-    result = _predict(args.behavior, data)
+    try:
+        result = _predict(args.behavior, data)
+        
+        # Ensure result is valid JSON serializable
+        if not isinstance(result, dict):
+            result = {"detected": False, "confidence": 0.0, "error": "Invalid result format", "fallback": True}
+            
+    except Exception as exc:
+        print(f"Prediction error: {str(exc)}", file=sys.stderr)
+        result = {"detected": False, "confidence": 0.0, "error": str(exc), "fallback": True}
 
     # Output **only** JSON on stdout so Node.js can parse it directly
-    sys.stdout.write(json.dumps(result))
+    try:
+        sys.stdout.write(json.dumps(result))
+        sys.stdout.flush()
+    except Exception as exc:
+        print(f"JSON output error: {str(exc)}", file=sys.stderr)
+        # Final fallback - simple JSON that should always work
+        simple_result = '{"detected": false, "confidence": 0.0, "error": "JSON serialization failed", "fallback": true}'
+        sys.stdout.write(simple_result)
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
     try:
         main()
+        # Always exit with code 0 if main() completes
+        sys.exit(0)
     except Exception as e:
         # Ensure any unexpected errors are surfaced correctly to Node (stderr)
-        print(str(e), file=sys.stderr)
-        sys.exit(1) 
+        print(f"Fatal error: {str(e)}", file=sys.stderr)
+        # Output a fallback JSON result even on fatal error
+        fallback_result = {"detected": False, "confidence": 0.0, "error": str(e), "fallback": True}
+        sys.stdout.write(json.dumps(fallback_result))
+        sys.exit(0)  # Exit successfully with fallback result
