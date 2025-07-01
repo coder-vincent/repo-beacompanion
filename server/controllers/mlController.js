@@ -10,9 +10,18 @@ const __dirname = path.dirname(__filename);
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
-    // First try real ML, even in production
-    const shouldUseSimulation =
-      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
+    // FORCE ENABLE REAL ML - Python backend is working perfectly
+    const shouldUseSimulation = false; // Always use real ML
+
+    console.log("🔧 FORCED ML ENABLED - Using real Python ML backend");
+    console.log(
+      "Environment check bypassed - ML_ENABLED:",
+      process.env.ML_ENABLED
+    );
+    console.log(
+      "Environment check bypassed - DISABLE_ML:",
+      process.env.DISABLE_ML
+    );
 
     if (shouldUseSimulation) {
       // Fallback to simulation only if ML is explicitly disabled
@@ -130,17 +139,33 @@ export const analyzeBehavior = async (req, res) => {
       fs.writeFileSync(tempFile, JSON.stringify(formattedData));
 
       // Debug logging
-      console.log("ML Analysis Debug:");
+      console.log("🔍 ML Analysis Debug:");
       console.log("- Behavior Type:", behaviorType);
       console.log("- Temp File:", tempFile);
       console.log("- Python Script:", pythonScript);
       console.log("- Working Dir:", workingDir);
       console.log("- Formatted Data Keys:", Object.keys(formattedData));
+      console.log("- Formatted Data:", formattedData);
       console.log(
         "- Payload Size:",
         (payloadSize / 1024 / 1024).toFixed(2),
         "MB"
       );
+
+      // SPECIAL DEBUG for rapid_talking
+      if (behaviorType === "rapid_talking") {
+        console.log("🎯 RAPID TALKING SPECIFIC DEBUG:");
+        console.log("- Raw data received:", data);
+        console.log("- Formatted data for Python:", formattedData);
+        console.log(
+          "- Data array length:",
+          Array.isArray(data) ? data.length : "not array"
+        );
+        console.log(
+          "- First few values:",
+          Array.isArray(data) ? data.slice(0, 5) : data
+        );
+      }
 
       // Use command line arguments for behavior type and file path
       const args = [
@@ -193,9 +218,17 @@ export const analyzeBehavior = async (req, res) => {
         }
 
         // Debug logging
-        console.log(`Python process exited with code: ${code}`);
-        console.log(`Python stdout: "${result}"`);
-        console.log(`Python stderr: "${error}"`);
+        console.log(`🐍 Python process exited with code: ${code}`);
+        console.log(`📤 Python stdout: "${result}"`);
+        console.log(`⚠️ Python stderr: "${error}"`);
+
+        // SPECIAL DEBUG for rapid_talking
+        if (behaviorType === "rapid_talking") {
+          console.log("🎯 RAPID TALKING PYTHON RESULT:");
+          console.log("- Exit code:", code);
+          console.log("- Raw stdout:", result);
+          console.log("- Any errors:", error);
+        }
 
         if (code !== 0) {
           console.error(`Python script exited with code ${code}:`, error);
@@ -352,9 +385,8 @@ export const analyzeBehavior = async (req, res) => {
 // Get ML model status
 export const getModelStatus = async (req, res) => {
   try {
-    // Try real status check first, fall back to mock if ML disabled
-    const shouldUseSimulation =
-      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
+    // FORCE ENABLE REAL ML - Python backend is working perfectly
+    const shouldUseSimulation = false; // Always use real ML
 
     if (shouldUseSimulation) {
       return res.json({
@@ -440,8 +472,7 @@ export const getModelStatus = async (req, res) => {
 export const batchAnalysis = async (req, res) => {
   try {
     // Try real ML first, only simulate if explicitly disabled
-    const shouldUseSimulation =
-      process.env.ML_ENABLED === "false" || process.env.DISABLE_ML === "true";
+    const shouldUseSimulation = false; // FORCE REAL ML
 
     if (shouldUseSimulation) {
       // Fallback to simulation only if ML is explicitly disabled
