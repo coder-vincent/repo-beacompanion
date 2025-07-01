@@ -32,7 +32,23 @@ export const AppContextProvider = (props) => {
       );
       console.log("🔍 AppContext: document.cookie:", document.cookie);
 
-      const { data } = await axios.get(backendUrl + "/api/user/data");
+      // Extract token from cookie if available (for production fallback)
+      const tokenMatch = document.cookie.match(/token=([^;]+)/);
+      const tokenFromCookie = tokenMatch ? tokenMatch[1] : null;
+
+      const config = {
+        withCredentials: true,
+      };
+
+      // If we have a token from cookie but it's production, also send as header
+      if (tokenFromCookie && !backendUrl.includes("localhost")) {
+        config.headers = {
+          Authorization: `Bearer ${tokenFromCookie}`,
+        };
+        console.log("🔍 AppContext: Added Authorization header for production");
+      }
+
+      const { data } = await axios.get(backendUrl + "/api/user/data", config);
 
       console.log("📊 AppContext: User data response:", data);
 
