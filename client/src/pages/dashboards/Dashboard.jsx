@@ -129,8 +129,35 @@ const Dashboard = () => {
             1
           )} (${words} words in ${minutes.toFixed(2)} minutes)`
         );
+
+        // Debug rapid talking threshold
+        if (wpm > 150) {
+          console.log(
+            `🚨 HIGH WPM DETECTED: ${wpm.toFixed(
+              1
+            )} WPM - This should trigger rapid talking!`
+          );
+        } else if (wpm > 120) {
+          console.log(
+            `⚡ Moderate WPM: ${wpm.toFixed(
+              1
+            )} WPM - Getting close to rapid talking threshold`
+          );
+        } else {
+          console.log(
+            `🐌 Normal WPM: ${wpm.toFixed(
+              1
+            )} WPM - Below rapid talking threshold`
+          );
+        }
+
         setWpmSeq((prev) => {
           const arr = [...prev, wpm];
+          console.log(
+            `📊 Updated WPM sequence: [${arr
+              .map((w) => w.toFixed(1))
+              .join(", ")}]`
+          );
           return arr.slice(-10); // keep last 10 values
         });
         // reset counters every 5s window to get quicker updates
@@ -546,6 +573,38 @@ const Dashboard = () => {
             .join(", ")}] (${wpmSeq.length} samples)`
         );
 
+        // RAPID TALKING DETECTION DEBUG
+        console.log("🎯 RAPID TALKING DETECTION ANALYSIS:");
+        if (wpmSeq.length >= 3) {
+          const recentWpm = wpmSeq.slice(-5);
+          const avgWpm =
+            recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
+          console.log(
+            `   📈 Average WPM: ${avgWpm.toFixed(1)} (from ${
+              recentWpm.length
+            } samples)`
+          );
+          console.log(`   🎯 Rapid talking threshold: 150+ WPM`);
+
+          if (avgWpm > 150) {
+            console.log(
+              `   🚨 SHOULD DETECT RAPID TALKING! (${avgWpm.toFixed(1)} > 150)`
+            );
+          } else if (avgWpm > 120) {
+            console.log(
+              `   ⚡ Close to rapid talking (${avgWpm.toFixed(1)} > 120)`
+            );
+          } else {
+            console.log(
+              `   🐌 Normal speaking pace (${avgWpm.toFixed(1)} <= 120)`
+            );
+          }
+        } else {
+          console.log(
+            `   ⚠️ Need ${3 - wpmSeq.length} more WPM samples for analysis`
+          );
+        }
+
         // FALLBACK: If speech recognition isn't working but we detect audio activity
         if (wpmSeq.length === 0 && audioData.volume > 0.05) {
           console.log(
@@ -626,6 +685,11 @@ const Dashboard = () => {
         }
 
         // Call real Python ML API for rapid talking
+        console.log(
+          `🔄 Calling Python ML API for rapid talking with data:`,
+          wpmData
+        );
+
         const response = await fetch(`${backendUrl}/api/ml/analyze`, {
           method: "POST",
           headers: {
@@ -638,12 +702,34 @@ const Dashboard = () => {
           }),
         });
 
+        console.log(
+          `📡 API Response status: ${response.status} ${response.statusText}`
+        );
+
         if (!response.ok) {
           throw new Error(`ML API error: ${response.status}`);
         }
 
         const result = await response.json();
-        console.log(`✅ Python ML detected rapid_talking:`, result);
+        console.log(`✅ Python ML API Response:`, result);
+
+        // Enhanced debugging for rapid talking results
+        if (result.detected) {
+          console.log(
+            `🎯 RAPID TALKING DETECTED! Confidence: ${(
+              result.confidence * 100
+            ).toFixed(1)}%`
+          );
+          console.log(
+            `   Detection type: ${result.fallback ? "Fallback" : "PyTorch ML"}`
+          );
+        } else {
+          console.log(
+            `❌ No rapid talking detected. Confidence: ${(
+              result.confidence * 100
+            ).toFixed(1)}%`
+          );
+        }
 
         // Add visual feedback for successful detection
         if (result.detected) {
@@ -699,10 +785,12 @@ const Dashboard = () => {
       // Analyze each behavior individually using real Python ML
       const analysisPromises = behaviorTypes.map(async (behaviorType) => {
         try {
+          console.log(`🔍 Starting analysis for behavior: ${behaviorType}`);
           const result = await analyzeBehavior(behaviorType);
+          console.log(`✅ Completed analysis for ${behaviorType}:`, result);
           return result;
         } catch (error) {
-          console.error(`Error analyzing ${behaviorType}:`, error);
+          console.error(`❌ Error analyzing ${behaviorType}:`, error);
           return {
             behavior_type: behaviorType,
             confidence: 0,
@@ -1566,6 +1654,42 @@ const Dashboard = () => {
                                 />
                               </svg>
                               Test Microphone
+                            </Button>
+
+                            <Button
+                              onClick={() => {
+                                console.log(
+                                  "🧪 TESTING RAPID TALKING DETECTION:"
+                                );
+                                console.log("   Simulating high WPM data...");
+
+                                // Add some high WPM test data
+                                const testWpmData = [180, 190, 175, 185, 200];
+                                setWpmSeq(testWpmData);
+
+                                console.log(
+                                  `   Test WPM data added: [${testWpmData.join(
+                                    ", "
+                                  )}]`
+                                );
+                                console.log(
+                                  "   ⏳ Wait for next analysis cycle (~1.5 seconds)"
+                                );
+                                console.log(
+                                  "   🎯 This should trigger rapid talking detection!"
+                                );
+
+                                toast(
+                                  "🧪 Test WPM data added - watch console for rapid talking detection!",
+                                  {
+                                    duration: 4000,
+                                  }
+                                );
+                              }}
+                              variant="outline"
+                              className="flex items-center gap-2 w-full sm:w-auto bg-orange-50 hover:bg-orange-100"
+                            >
+                              🧪 Test Rapid Talking
                             </Button>
                           </>
                         ) : (
