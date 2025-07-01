@@ -263,9 +263,15 @@ const Dashboard = () => {
 
         // Add visual feedback for successful detection
         if (result.detected) {
+          const detectionType = result.fallback ? "FALLBACK" : "PYTORCH ML";
           console.log(
-            `🎯 BEHAVIOR DETECTED: ${behaviorType} (confidence: ${result.confidence})`
+            `🎯 ${detectionType} DETECTED: ${behaviorType} (confidence: ${result.confidence})`
           );
+          if (!result.fallback) {
+            console.log(
+              `✨ Real PyTorch model successful for ${behaviorType}!`
+            );
+          }
         }
 
         return result.analysis || result;
@@ -318,9 +324,13 @@ const Dashboard = () => {
 
         // Add visual feedback for successful detection
         if (result.detected) {
+          const detectionType = result.fallback ? "FALLBACK" : "PYTORCH ML";
           console.log(
-            `🎯 RAPID TALKING DETECTED! (confidence: ${result.confidence})`
+            `🎯 ${detectionType} RAPID TALKING DETECTED! (confidence: ${result.confidence})`
           );
+          if (!result.fallback) {
+            console.log(`✨ Real PyTorch WPM model successful!`);
+          }
         }
 
         return result.analysis || result;
@@ -690,7 +700,7 @@ const Dashboard = () => {
       const analysisInterval = setInterval(() => {
         console.log("🔍 Running scheduled Python ML analysis...");
         runBehavioralAnalysis();
-      }, 2000); // Faster analysis for better responsiveness (every 2 seconds)
+      }, 1500); // Even faster analysis for better responsiveness (every 1.5 seconds)
       setAnalysisIntervalId(analysisInterval);
       setTimeout(() => {
         console.log("🎬 Running initial Python ML analysis...");
