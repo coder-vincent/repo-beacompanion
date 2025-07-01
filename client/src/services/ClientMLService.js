@@ -8,6 +8,13 @@ class ClientMLService {
     this.previousFrameData = null;
     this.motionHistory = [];
     this.behaviorCounters = {};
+    this.currentBehaviorIndex = 0; // For cycling through behaviors
+    this.behaviorOrder = [
+      "tapping_hands",
+      "tapping_feet",
+      "sit_stand",
+      "eye_gaze",
+    ]; // Rotation order
   }
 
   async initialize() {
@@ -367,10 +374,10 @@ class ClientMLService {
   detectBehaviorFromFeatures(features, behaviorType) {
     // Use lightweight algorithms for real behavior detection
     const thresholds = {
-      eye_gaze: 0.45,
+      eye_gaze: 0.5, // Increased to balance with others
       tapping_hands: 0.4,
       tapping_feet: 0.4,
-      sit_stand: 0.5,
+      sit_stand: 0.45,
       rapid_talking: 0.35,
     };
 
@@ -381,9 +388,8 @@ class ClientMLService {
 
     switch (behaviorType) {
       case "eye_gaze":
-        // Base confidence on actual motion and minimal randomness
-        confidence =
-          features.motion * 0.6 + (features.eyeMovement || 0.1) * 0.4;
+        // Removed baseline bonus to balance with others
+        confidence = features.motion * 0.7 + (features.eyeMovement || 0) * 0.3;
         break;
       case "tapping_hands":
         // Require actual motion for hand tapping
@@ -400,7 +406,7 @@ class ClientMLService {
       case "sit_stand":
         // Require significant motion for posture changes
         confidence =
-          features.motion * 0.8 + (features.postureChange || 0.1) * 0.2;
+          features.motion * 0.8 + (features.postureChange || 0) * 0.2;
         break;
       default:
         confidence = features.motion * 0.6 + features.intensity * 0.4;
@@ -441,16 +447,59 @@ class ClientMLService {
   }
 
   formatComprehensiveResults(results) {
-    // Find the behavior with highest confidence
-    let maxConfidence = 0;
-    let primaryBehavior = "unknown";
-    let detected = false;
+    // Instead of always picking highest confidence, cycle through behaviors
+    // This ensures all behaviors get a chance to be detected
+
+    // Find behaviors that are actually detected
+    const detectedBehaviors = [];
+    const allBehaviors = [];
 
     for (const [behavior, result] of Object.entries(results)) {
-      if (result.confidence > maxConfidence) {
-        maxConfidence = result.confidence;
-        primaryBehavior = behavior;
-        detected = result.detected;
+      allBehaviors.push({ behavior, result });
+      if (result.detected) {
+        detectedBehaviors.push({ behavior, result });
+      }
+    }
+
+    let primaryBehavior = "unknown";
+    let primaryResult = null;
+
+    if (detectedBehaviors.length > 0) {
+      // If multiple behaviors detected, cycle through them
+      if (detectedBehaviors.length > 1) {
+        // Rotate to next behavior in our order
+        this.currentBehaviorIndex =
+          (this.currentBehaviorIndex + 1) % this.behaviorOrder.length;
+        const targetBehavior = this.behaviorOrder[this.currentBehaviorIndex];
+
+        // Find if our target behavior is detected
+        const targetDetected = detectedBehaviors.find(
+          (b) => b.behavior === targetBehavior
+        );
+        if (targetDetected) {
+          primaryBehavior = targetDetected.behavior;
+          primaryResult = targetDetected.result;
+        } else {
+          // Fall back to highest confidence detected behavior
+          const highest = detectedBehaviors.reduce((max, current) =>
+            current.result.confidence > max.result.confidence ? current : max
+          );
+          primaryBehavior = highest.behavior;
+          primaryResult = highest.result;
+        }
+      } else {
+        // Only one behavior detected
+        primaryBehavior = detectedBehaviors[0].behavior;
+        primaryResult = detectedBehaviors[0].result;
+      }
+    } else {
+      // No behaviors detected, return the one with highest confidence anyway
+      if (allBehaviors.length > 0) {
+        const highest = allBehaviors.reduce((max, current) =>
+          current.result.confidence > max.result.confidence ? current : max
+        );
+        primaryBehavior = highest.behavior;
+        primaryResult = highest.result;
       }
     }
 
@@ -458,10 +507,10 @@ class ClientMLService {
       success: true,
       analysis: {
         behavior_type: primaryBehavior,
-        confidence: maxConfidence,
-        detected: detected,
+        confidence: primaryResult ? primaryResult.confidence : 0,
+        detected: primaryResult ? primaryResult.detected : false,
         timestamp: new Date().toISOString(),
-        message: `Real-time comprehensive behavior analysis`,
+        message: `Real-time comprehensive behavior analysis - ${primaryBehavior}`,
         all_behaviors: results,
       },
     };
