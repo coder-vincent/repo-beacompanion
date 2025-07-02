@@ -6,7 +6,6 @@ import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 import Dashboard from "./pages/dashboards/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { SocketStatus } from "./components/SocketStatus";
 
 const App = () => {
   return (
@@ -26,7 +25,6 @@ const App = () => {
           }
         />
       </Routes>
-      <SocketStatus />
     </div>
   );
 };

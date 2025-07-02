@@ -29,13 +29,13 @@ def load_all_models():
         "tapping_hands": TappingCNN(),
     }
 
-    # Corresponding weight files
+    # Corresponding weight files (relative to utils directory)
     model_files = {
-        "rapid_talking": "models/rapid_talking.pth",
-        "eye_gaze": "models/eye_gaze.pth",
-        "sit_stand": "models/sit-stand.pth",
-        "tapping_feet": "models/tapping_feet.pth",
-        "tapping_hands": "models/tapping_hands.pth",
+        "rapid_talking": "../models/rapid_talking.pth",
+        "eye_gaze": "../models/eye_gaze.pth",
+        "sit_stand": "../models/sit-stand.pth",
+        "tapping_feet": "../models/tapping_feet.pth",
+        "tapping_hands": "../models/tapping_hands.pth",
     }
 
     # Load weights and move to device

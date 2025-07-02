@@ -5,13 +5,7 @@ const userAuth = async (req, res, next) => {
     token = req.headers.authorization.split(" ")[1];
   }
 
-  console.log("🔐 userAuth: Checking authentication...");
-  console.log("🔐 userAuth: Cookies received:", req.cookies);
-  console.log("🔐 userAuth: Token found:", token ? "YES" : "NO");
-  console.log("🔐 userAuth: Authorization header:", req.headers.authorization);
-
   if (!token) {
-    console.log("❌ userAuth: No token found");
     return res.json({
       success: false,
       message: "Not authorized, login again.",
@@ -28,7 +22,6 @@ const userAuth = async (req, res, next) => {
     if (tokenDecode.id) {
       req.user = { id: tokenDecode.id };
     } else {
-      console.log("❌ userAuth: No user ID in token");
       return res.json({
         success: false,
         message: "Not authorized, login again.",
@@ -37,7 +30,6 @@ const userAuth = async (req, res, next) => {
 
     next();
   } catch (err) {
-    console.error("❌ userAuth: Authentication error:", err);
     res.json({ success: false, message: "Not authorized, login again." });
   }
 };

@@ -58,6 +58,11 @@ export const createMonitoringSession = async (req, res) => {
 export const endMonitoringSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
+    const { behaviorData, alerts } = req.body;
+
+    console.log("🛑 Ending session:", sessionId);
+    console.log("💾 Received behavior data:", behaviorData);
+    console.log("🚨 Received alerts:", alerts);
 
     if (!sessionId) {
       return res.status(400).json({
@@ -79,11 +84,34 @@ export const endMonitoringSession = async (req, res) => {
     const startTime = new Date(session.startTime);
     const duration = Math.round((new Date(endTime) - startTime) / 1000); // Duration in seconds
 
-    const updatedSession = await updateSession(sessionId, {
+    // Prepare update data
+    const updateData = {
       endTime,
       status: "completed",
       duration: formatDuration(duration),
-    });
+    };
+
+    // Add behavior data if provided - avoid double JSON encoding
+    if (behaviorData) {
+      // Only stringify if it's not already a string
+      updateData.behaviorData =
+        typeof behaviorData === "string"
+          ? behaviorData
+          : JSON.stringify(behaviorData);
+      console.log("✅ Saving behavior data to session");
+    }
+
+    // Add alerts if provided - avoid double JSON encoding
+    if (alerts) {
+      // Only stringify if it's not already a string
+      updateData.alerts =
+        typeof alerts === "string" ? alerts : JSON.stringify(alerts);
+      console.log("✅ Saving alerts to session");
+    }
+
+    const updatedSession = await updateSession(sessionId, updateData);
+
+    console.log("🎯 Session successfully ended and data saved");
 
     res.json({
       success: true,
@@ -260,8 +288,80 @@ const formatDuration = (seconds) => {
 
 // Helper function to calculate session analytics
 const calculateSessionAnalytics = (session) => {
-  const behaviorData = session.behaviorData || {};
-  const alerts = session.alerts || [];
+  console.log("🔍 Calculating analytics for session:", session.id);
+  console.log("📊 Session data:", {
+    behaviorData: session.behaviorData,
+    alerts: session.alerts,
+    alertsType: typeof session.alerts,
+    behaviorDataType: typeof session.behaviorData,
+    duration: session.duration,
+  });
+
+  // Safely handle behaviorData - it could be JSON string, double-encoded JSON, object, or null
+  let behaviorData = {};
+  try {
+    if (session.behaviorData) {
+      let data = session.behaviorData;
+
+      // If it's a string, try to parse it
+      if (typeof data === "string") {
+        data = JSON.parse(data);
+
+        // Check if it's still a string (double-encoded)
+        if (typeof data === "string") {
+          data = JSON.parse(data);
+        }
+      }
+
+      if (typeof data === "object" && data !== null) {
+        behaviorData = data;
+      } else {
+        console.warn(
+          "⚠️ BehaviorData is not a valid object after parsing:",
+          typeof data
+        );
+        behaviorData = {};
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error parsing behaviorData JSON:", error);
+    behaviorData = {};
+  }
+
+  console.log("✅ Processed behaviorData:", behaviorData);
+
+  // Safely handle alerts - it could be JSON string, double-encoded JSON, array, or null
+  let alerts = [];
+  try {
+    if (session.alerts) {
+      let data = session.alerts;
+
+      // If it's a string, try to parse it
+      if (typeof data === "string") {
+        data = JSON.parse(data);
+
+        // Check if it's still a string (double-encoded)
+        if (typeof data === "string") {
+          data = JSON.parse(data);
+        }
+      }
+
+      if (Array.isArray(data)) {
+        alerts = data;
+      } else {
+        console.warn(
+          "⚠️ Alerts is not a valid array after parsing:",
+          typeof data
+        );
+        alerts = [];
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error parsing alerts JSON:", error);
+    alerts = [];
+  }
+
+  console.log("✅ Processed alerts:", alerts);
 
   const analytics = {
     totalBehaviors: 0,
@@ -270,35 +370,54 @@ const calculateSessionAnalytics = (session) => {
     highSeverityAlerts: 0,
     sessionDuration: session.duration || "N/A",
     averageSeverity: 0,
+    averageConfidence: 0,
+    sessionSummary: {
+      startTime: session.startTime,
+      endTime: session.endTime,
+      status: session.status,
+    },
   };
 
-  // Calculate behavior statistics
+  // Calculate behavior statistics with improved data handling
   Object.entries(behaviorData).forEach(([behavior, data]) => {
-    analytics.totalBehaviors += data.count || 0;
+    const count = data.count || 0;
+    const totalConfidence = data.totalConfidence || 0;
+    const avgConfidence = count > 0 ? totalConfidence / count : 0;
+
+    analytics.totalBehaviors += count;
     analytics.behaviorBreakdown[behavior] = {
-      count: data.count || 0,
-      severity: data.severity || 0,
+      count: count,
+      totalConfidence: totalConfidence,
+      averageConfidence: avgConfidence,
+      severity: avgConfidence, // Use average confidence as severity
       lastDetection: data.lastDetection,
+      behaviorType: behavior
+        .replace("_", " ")
+        .replace(/\b\w/g, (l) => l.toUpperCase()),
     };
   });
 
-  // Calculate alert statistics
-  alerts.forEach((alert) => {
-    if (alert.type === "warning" && alert.confidence > 0.7) {
-      analytics.highSeverityAlerts++;
-    }
-  });
-
-  // Calculate average severity
-  const severities = Object.values(analytics.behaviorBreakdown)
-    .map((b) => b.severity)
-    .filter((s) => s > 0);
-
-  if (severities.length > 0) {
-    analytics.averageSeverity =
-      severities.reduce((a, b) => a + b, 0) / severities.length;
+  // Calculate alert statistics with better handling
+  if (Array.isArray(alerts)) {
+    alerts.forEach((alert) => {
+      if (alert && alert.confidence && alert.confidence > 0.7) {
+        analytics.highSeverityAlerts++;
+      }
+    });
   }
 
+  // Calculate average confidence across all behaviors
+  const confidenceValues = Object.values(analytics.behaviorBreakdown)
+    .map((b) => b.averageConfidence)
+    .filter((c) => c > 0);
+
+  if (confidenceValues.length > 0) {
+    analytics.averageConfidence =
+      confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length;
+    analytics.averageSeverity = analytics.averageConfidence; // Use confidence as severity
+  }
+
+  console.log("📈 Final analytics:", analytics);
   return analytics;
 };
 

@@ -91,7 +91,19 @@ export const createSession = async (sessionData) => {
 export const getSessionById = async (sessionId) => {
   try {
     const session = await Session.findByPk(sessionId);
-    return session ? session.toJSON() : null;
+    if (session) {
+      const sessionData = session.toJSON();
+      console.log("📋 Raw session data from database:", {
+        id: sessionData.id,
+        behaviorData: sessionData.behaviorData,
+        behaviorDataType: typeof sessionData.behaviorData,
+        alerts: sessionData.alerts,
+        alertsType: typeof sessionData.alerts,
+        duration: sessionData.duration,
+      });
+      return sessionData;
+    }
+    return null;
   } catch (error) {
     console.error("Get Session By ID Error:", error);
     throw error;

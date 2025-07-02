@@ -7,6 +7,129 @@ import os from "os";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Store recent detections to prevent unrealistic simultaneous behaviors
+const recentDetections = new Map();
+
+/**
+ * Apply minimal intelligent filtering to reduce false positives while preserving real detections
+ */
+function applyIntelligentFiltering(result, behaviorType) {
+  // Only apply very minimal filtering - the Python ML is already well-tuned
+
+  // If this is a fallback result, apply minimal filtering
+  if (result.fallback) {
+    console.log(`[FILTER] Minimal fallback filtering for ${behaviorType}`);
+
+    // Only filter out extremely low confidence fallback detections
+    if (result.confidence < 0.1) {
+      result.detected = false;
+      console.log(
+        `[FILTER] Extremely low confidence fallback filtered: ${result.confidence}`
+      );
+    }
+    return result;
+  }
+
+  // For hand tapping, trust the Python ML analysis
+  if (behaviorType === "tapping_hands" && result.detected) {
+    // Trust pattern analysis results completely
+    if (result.analysis_type === "pattern_recognition") {
+      console.log(
+        `[PATTERN] Hand tapping pattern detected: ${result.pattern} (confidence: ${result.confidence})`
+      );
+      // No filtering needed - pattern analysis is already conservative
+    } else {
+      // For PyTorch detection, only filter extremely low confidence
+      if (result.confidence < 0.25) {
+        console.log(
+          `[FILTER] Hand tapping confidence too low: ${result.confidence} < 0.25`
+        );
+        result.detected = false;
+        result.confidence = Math.max(0.1, result.confidence * 0.5);
+      }
+    }
+  }
+
+  // For sit/stand, only filter very low confidence
+  if (behaviorType === "sit_stand" && result.detected) {
+    if (result.confidence < 0.2) {
+      console.log(
+        `[FILTER] Sit/stand confidence too low: ${result.confidence} < 0.2`
+      );
+      result.detected = false;
+      result.confidence = Math.max(0.1, result.confidence * 0.7);
+    }
+  }
+
+  // For foot tapping, be even more lenient
+  if (behaviorType === "tapping_feet" && result.detected) {
+    if (result.confidence < 0.15) {
+      console.log(
+        `[FILTER] Foot tapping confidence too low: ${result.confidence} < 0.15`
+      );
+      result.detected = false;
+    }
+  }
+
+  // For eye gaze, minimal filtering
+  if (behaviorType === "eye_gaze" && result.detected) {
+    if (result.confidence < 0.2) {
+      console.log(
+        `[FILTER] Eye gaze confidence too low: ${result.confidence} < 0.2`
+      );
+      result.detected = false;
+    }
+  }
+
+  // For rapid talking, minimal filtering
+  if (behaviorType === "rapid_talking" && result.detected) {
+    if (result.confidence < 0.2) {
+      console.log(
+        `[FILTER] Rapid talking confidence too low: ${result.confidence} < 0.2`
+      );
+      result.detected = false;
+    }
+  }
+
+  // Much more relaxed simultaneous detection checking
+  const now = Date.now();
+  const timeWindow = 5000; // Reduced to 5 seconds
+
+  // Clean old detections
+  for (const [behavior, timestamp] of recentDetections.entries()) {
+    if (now - timestamp > timeWindow) {
+      recentDetections.delete(behavior);
+    }
+  }
+
+  // Only filter if we have 4+ simultaneous detections (very unrealistic)
+  if (result.detected) {
+    const recentCount = recentDetections.size;
+
+    if (recentCount >= 4) {
+      console.log(
+        `[FILTER] Extremely high simultaneous detections (${recentCount}), slight confidence reduction`
+      );
+      result.confidence = Math.max(0.2, result.confidence * 0.8);
+
+      // Only mark as false positive if confidence drops below 0.15
+      if (result.confidence < 0.15) {
+        result.detected = false;
+        console.log(
+          `[FILTER] Marked as false positive due to too many simultaneous detections`
+        );
+      }
+    }
+
+    // Record detection if still valid
+    if (result.detected) {
+      recentDetections.set(behaviorType, now);
+    }
+  }
+
+  return result;
+}
+
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
   try {
@@ -59,8 +182,11 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    const pythonScript = path.join(__dirname, "../ml-utils/ml_analyzer.py");
-    const workingDir = path.join(__dirname, "..");
+    const pythonScript = path.join(
+      __dirname,
+      "../../machine-learning/utils/ml_analyzer.py"
+    );
+    const workingDir = path.join(__dirname, "../../machine-learning/utils");
 
     if (!behaviorType || (!data && !frame && !frame_sequence)) {
       return res.status(400).json({
@@ -177,9 +303,15 @@ export const analyzeBehavior = async (req, res) => {
       ];
       console.log("- Python Args:", args);
 
+      console.log("🔍 Attempting to start Python process:");
+      console.log("- Working Directory:", workingDir);
+      console.log("- Python Script Path:", pythonScript);
+      console.log("- Args:", args);
+
       const pythonProcess = spawn("python", args, {
         cwd: workingDir,
         stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env }, // Inherit environment
       });
 
       // Set a timeout for the Python process (5 minutes)
@@ -305,10 +437,52 @@ export const analyzeBehavior = async (req, res) => {
             ...analysisResult,
           };
 
+          // Apply intelligent filtering to reduce false positives
+          analysisResult = applyIntelligentFiltering(
+            analysisResult,
+            behaviorType
+          );
+
           console.log("Parsed analysis result:", analysisResult);
+
+          // Convert to new response format that matches client expectations
+          const detectionResults = {
+            eyeGaze: behaviorType === "eye_gaze" && analysisResult.detected,
+            handTapping:
+              behaviorType === "tapping_hands" && analysisResult.detected,
+            footTapping:
+              behaviorType === "tapping_feet" && analysisResult.detected,
+            sitStand: behaviorType === "sit_stand" && analysisResult.detected,
+            rapidTalking:
+              behaviorType === "rapid_talking" && analysisResult.detected,
+          };
+
           res.json({
-            success: true,
-            analysis: analysisResult,
+            detected: Object.values(detectionResults).some(Boolean),
+            eyeGaze: detectionResults.eyeGaze,
+            handTapping: detectionResults.handTapping,
+            footTapping: detectionResults.footTapping,
+            sitStand: detectionResults.sitStand,
+            rapidTalking: detectionResults.rapidTalking,
+            confidence: {
+              eyeGaze:
+                behaviorType === "eye_gaze" ? analysisResult.confidence : 0,
+              handTapping:
+                behaviorType === "tapping_hands"
+                  ? analysisResult.confidence
+                  : 0,
+              footTapping:
+                behaviorType === "tapping_feet" ? analysisResult.confidence : 0,
+              sitStand:
+                behaviorType === "sit_stand" ? analysisResult.confidence : 0,
+              rapidTalking:
+                behaviorType === "rapid_talking"
+                  ? analysisResult.confidence
+                  : 0,
+            },
+            tapCount: analysisResult.tap_count || 0,
+            clapCount: analysisResult.clap_count || 0,
+            timestamp: new Date().toISOString(),
           });
         } catch (parseError) {
           console.error("JSON parse error:", parseError);
@@ -347,6 +521,12 @@ export const analyzeBehavior = async (req, res) => {
 
         console.error("Failed to start Python process:", err);
         console.log("Falling back to simulated ML response...");
+
+        // Check if response already sent
+        if (res.headersSent) {
+          console.log("Response already sent, skipping fallback");
+          return;
+        }
 
         // Graceful fallback to simulation
         const behaviorType =
@@ -747,7 +927,15 @@ export const analyzeImage = async (req, res) => {
     }
 
     // Use the Python script in ml-utils directory
-    const scriptPath = path.join(__dirname, "..", "ml-utils", "ml_analyzer.py");
+    const scriptPath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "machine-learning",
+      "utils",
+      "ml_analyzer.py"
+    );
+    const workingDir = path.join(__dirname, "../../machine-learning/utils");
 
     const pythonCommand = `python "${scriptPath}" --analysis-type ${analysisType}`;
 
@@ -756,13 +944,37 @@ export const analyzeImage = async (req, res) => {
       input: JSON.stringify({ imageData }),
       encoding: "utf-8",
       timeout: 30000, // 30 second timeout
+      cwd: workingDir,
     });
 
     const analysis = JSON.parse(result);
 
+    // BALANCED DETECTION THRESHOLDS - sensitive but accurate
+    const detectionResults = {
+      eyeGaze: analysis.eye_gaze > 0.3, // Reasonable threshold
+      handTapping: analysis.hand_tapping > 0.25, // More conservative
+      footTapping: analysis.foot_tapping > 0.25, // More conservative
+      sitStand: analysis.sit_stand > 0.3, // Reasonable threshold
+      rapidTalking: analysis.rapid_talking > 0.25, // More conservative
+    };
+
     res.json({
-      success: true,
-      analysis,
+      detected: Object.values(detectionResults).some(Boolean),
+      eyeGaze: detectionResults.eyeGaze,
+      handTapping: detectionResults.handTapping,
+      footTapping: detectionResults.footTapping,
+      sitStand: detectionResults.sitStand,
+      rapidTalking: detectionResults.rapidTalking,
+      confidence: {
+        eyeGaze: analysis.eye_gaze,
+        handTapping: analysis.hand_tapping,
+        footTapping: analysis.foot_tapping,
+        sitStand: analysis.sit_stand,
+        rapidTalking: analysis.rapid_talking,
+      },
+      tapCount: analysis.tap_count || 0,
+      clapCount: analysis.clap_count || 0,
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("ML Analysis error:", error);
@@ -794,21 +1006,26 @@ export const batchAnalyze = async (req, res) => {
       });
     }
 
-    // Use the Python script in ml-utils directory
+    // Use the Python script in machine-learning directory
     const scriptPath = path.join(
       __dirname,
       "..",
-      "ml-utils",
+      "..",
+      "machine-learning",
+      "utils",
       "batch_analyzer.py"
     );
 
     const pythonCommand = `python "${scriptPath}" --analysis-type ${analysisType}`;
+
+    const workingDir = path.join(__dirname, "../../machine-learning/utils");
 
     // Execute the Python script with batch data
     const result = execSync(pythonCommand, {
       input: JSON.stringify({ images }),
       encoding: "utf-8",
       timeout: 60000, // 60 second timeout for batch processing
+      cwd: workingDir,
     });
 
     const analysis = JSON.parse(result);
