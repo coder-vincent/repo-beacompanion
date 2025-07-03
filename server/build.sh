@@ -31,7 +31,9 @@ install_python_deps() {
     python -m pip install -r "$REQ_FILE" \
         --no-cache-dir \
         --prefer-binary \
-        --only-binary=all \
+        --only-binary=:all: \
+        --progress-bar off \
+        -v \
         --timeout=300 \
         --retries=3
     
