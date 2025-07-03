@@ -25,7 +25,8 @@ const allowedOrigins =
     ? [
         "https://repo-beacompanion.vercel.app", // Vercel frontend
         "https://repo-beacompanion-server.onrender.com", // Render backend
-        "https://beacompanion.online", // Domain Name
+        "https://beacompanion.online", // root domain
+        "https://www.beacompanion.online", // www subdomain
         process.env.CLIENT_URL, // Additional client URL if set
       ].filter(Boolean)
     : [
