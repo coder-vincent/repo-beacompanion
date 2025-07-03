@@ -81,17 +81,9 @@ app.use(
   })
 );
 
-// NEW: Explicitly handle all CORS pre-flight requests early
-app.options(
-  "/*",
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-    optionsSuccessStatus: 200,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
-  })
-);
+// NOTE: Express 5 no longer accepts wildcard patterns like "*" or "/*" in route definitions.
+// The built-in CORS middleware already handles all OPTIONS pre-flight requests, so the extra
+// app.options handler is unnecessary and, in fact, breaks on Render (path-to-regexp error).
 
 // Socket.IO connection handling
 io.on("connection", (socket) => {
