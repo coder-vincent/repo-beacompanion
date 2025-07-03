@@ -8,12 +8,13 @@
 numpy==1.24.3
 pillow==10.0.1
 
-# PyTorch CPU-only (smaller, faster installation)
-torch==2.0.1+cpu --index-url https://download.pytorch.org/whl/cpu
-torchvision==0.15.2+cpu --index-url https://download.pytorch.org/whl/cpu
+# PyTorch CPU-only wheels (official) – compatible with Python 3.10
+# Always specify the +cpu build tag when using the dedicated CPU index.
+torch==2.3.0+cpu --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.18.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # MediaPipe for pose/hand/face detection (essential for behavior analysis)
-mediapipe==0.10.7
+mediapipe==0.10.21
 
 # Data processing
 pandas==2.0.3
