@@ -2,6 +2,11 @@
 
 echo "🚀 Starting BeaCompanion Build Process..."
 
+# Resolve script directory so all relative paths are robust regardless of
+# where this script is invoked from.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REQ_FILE="$SCRIPT_DIR/requirements.txt"
+
 # Install Node.js dependencies
 echo "📦 Installing Node.js dependencies..."
 npm install
@@ -17,11 +22,13 @@ export PYTHONUNBUFFERED=1
 install_python_deps() {
     echo "Attempting to install Python dependencies..."
     
-    # Update pip to latest version
+    # Show current Python & pip versions, then upgrade pip
+    python -m pip --version
+    python -c "import sys,platform; print('Python', sys.version); print('Platform', platform.platform())"
     python -m pip install --upgrade pip
     
     # Install dependencies with specific flags for Render compatibility
-    python -m pip install -r requirements.txt \
+    python -m pip install -r "$REQ_FILE" \
         --no-cache-dir \
         --prefer-binary \
         --only-binary=all \
