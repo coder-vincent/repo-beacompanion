@@ -173,12 +173,23 @@ export const analyzeBehavior = async (req, res) => {
     const frame_sequence =
       req.body.frame_sequence || req.body.frameSequence || null;
 
-    // Validate request body size
+    // Validate request body size – keep well under 512 MB Render free limit
     const contentLength = req.headers["content-length"];
-    if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+    const MAX_REQUEST_BYTES = 15 * 1024 * 1024; // 15 MB
+    if (contentLength && parseInt(contentLength) > MAX_REQUEST_BYTES) {
       return res.status(413).json({
         success: false,
-        message: "Request payload too large. Maximum size is 50MB.",
+        message: `Request payload too large (>${
+          MAX_REQUEST_BYTES / 1024 / 1024
+        } MB). Reduce resolution or number of frames.`,
+      });
+    }
+
+    // Extra guard: if frame_sequence array is enormous, reject early to avoid OOM
+    if (Array.isArray(frame_sequence) && frame_sequence.length > 40) {
+      return res.status(413).json({
+        success: false,
+        message: `Frame sequence too long (${frame_sequence.length}). Max 40 frames allowed per request.`,
       });
     }
 
