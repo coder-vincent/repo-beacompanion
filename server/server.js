@@ -50,17 +50,32 @@ const port = process.env.PORT || 4000;
 // Initialize database connection and sync models
 const initializeServer = async () => {
   try {
-    await connectDB();
+    let dbReady = false;
+    try {
+      await connectDB();
 
-    // Sync all models
-    await sequelize.sync({ alter: true });
-    console.log("Database models synchronized successfully");
+      // Sync all models
+      await sequelize.sync({ alter: true });
+      console.log("Database models synchronized successfully");
+      dbReady = true;
+    } catch (dbErr) {
+      // Log but continue – allows the API (e.g., /health) to respond instead of Render 502
+      console.error(
+        "\u001b[31m[WARN] Database unavailable – continuing without DB. Most endpoints may fail.\u001b[0m"
+      );
+      console.error(dbErr);
+    }
 
-    // Start the server
+    // Always start the server so Render health-check succeeds
     httpServer.listen(port, () => {
       console.log(`Server started on port: ${port}`);
       console.log(`CORS allowed origins:`, allowedOrigins);
       console.log(`Socket.IO server ready`);
+      if (!dbReady) {
+        console.warn(
+          "Running without a database connection – only non-DB routes will work."
+        );
+      }
     });
   } catch (error) {
     console.error("Failed to initialize server:", error);
@@ -111,6 +126,15 @@ app.use("/api/user", userRouter);
 app.use("/api/content", contentRouter);
 app.use("/api/ml", mlRouter);
 app.use("/api/session", sessionRouter);
+
+const mlDataMiddleware = express.json({ limit: "50mb" });
+
+app.use("/api/ml/analyze", (req, res, next) => {
+  if (!req.body || typeof req.body !== "object") {
+    return res.status(400).json({ success: false, message: "Invalid JSON" });
+  }
+  next();
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
