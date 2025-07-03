@@ -29,14 +29,49 @@ from pathlib import Path
 import contextlib
 import io
 
-import torch
+# Safe import torch – fallback if not available (Render slug without torch)
+try:
+    import torch  # type: ignore
+    TORCH_AVAILABLE = True
+except ImportError:
+    print("Warning: PyTorch not available – ML models will be disabled", file=sys.stderr)
+    TORCH_AVAILABLE = False
+
+# If torch missing, create a lightweight stub so runtime imports succeed
+from typing import Any
+
+if not TORCH_AVAILABLE:
+    class _TorchStub:
+        def __getattr__(self, name: str) -> Any:  # noqa: D401,E501
+            def _missing(*args: Any, **kwargs: Any) -> None:  # noqa: D401,E501
+                raise ImportError("PyTorch is required for ML inference but is not installed in this environment.")
+
+            return _missing
+
+    torch = _TorchStub()  # type: ignore[name-defined, assignment]
+
+# ---------------------------------------------------------------------------
+# Device setup (safe if torch missing)
+# ---------------------------------------------------------------------------
+
+try:
+    DEVICE = torch.device("cuda" if TORCH_AVAILABLE and torch.cuda.is_available() else "cpu")  # type: ignore[attr-defined]
+except Exception:
+    DEVICE = "cpu"  # Fallback when torch is stubbed
+
 from PIL import Image
 from torchvision import transforms
 
-# Local util that loads and caches models
-_silent = io.StringIO()
-with contextlib.redirect_stdout(_silent):
-    from model_loader import load_all_models
+# Local util that loads and caches models (only if torch is available)
+if TORCH_AVAILABLE:
+    _silent = io.StringIO()
+    with contextlib.redirect_stdout(_silent):
+        from model_loader import load_all_models
+
+    # Load *once* so subsequent calls are fast
+    MODELS = load_all_models()
+else:
+    MODELS = {"rapid_talking": None}  # Only rule-based behaviors available
 
 # For eye gaze preprocessing
 import numpy as np
@@ -48,11 +83,6 @@ SIT_STAND_STATE_FILE = Path(__file__).parent / "sit_stand_state.json"
 # ---------------------------------------------------------------------------
 # Globals
 # ---------------------------------------------------------------------------
-
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Load *once* so subsequent calls are fast
-MODELS = load_all_models()
 
 
 # Common image transform (matches notebook training — 64×64 RGB, no normalisation)
@@ -118,7 +148,7 @@ def _decode_image(data_url: str) -> Image.Image:
         raise ValueError(f"Invalid base64 image: {exc}") from exc
 
 
-def _frames_to_tensor(frames: List[str]) -> torch.Tensor:
+def _frames_to_tensor(frames: List[str]) -> Any:
     """Turn list of base64 images into (T, C, H, W) float tensor."""
 
     tensors = []
