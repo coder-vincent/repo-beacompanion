@@ -83,7 +83,7 @@ app.use(
 
 // NEW: Explicitly handle all CORS pre-flight requests early
 app.options(
-  "*",
+  "/*",
   cors({
     origin: allowedOrigins,
     credentials: true,
