@@ -94,6 +94,41 @@ app.use(
   })
 );
 
+// Add explicit CORS headers for preflight requests
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // Check if the origin is in our allowed list
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    console.log(`✅ CORS: Allowed origin ${origin}`);
+  } else if (process.env.NODE_ENV !== "production") {
+    // In development, be more permissive
+    res.header("Access-Control-Allow-Origin", origin || "*");
+    console.log(`🔧 CORS: Dev mode - allowing origin ${origin}`);
+  } else {
+    console.warn(
+      `❌ CORS: Rejected origin ${origin}. Allowed origins:`,
+      allowedOrigins
+    );
+  }
+
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Cookie"
+  );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    console.log(`🔍 CORS: Handling OPTIONS preflight request from ${origin}`);
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // Increase JSON body parser limit for large ML data – declared **after** CORS
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -126,15 +161,6 @@ app.use("/api/user", userRouter);
 app.use("/api/content", contentRouter);
 app.use("/api/ml", mlRouter);
 app.use("/api/session", sessionRouter);
-
-const mlDataMiddleware = express.json({ limit: "50mb" });
-
-app.use("/api/ml/analyze", (req, res, next) => {
-  if (!req.body || typeof req.body !== "object") {
-    return res.status(400).json({ success: false, message: "Invalid JSON" });
-  }
-  next();
-});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
