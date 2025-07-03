@@ -29,13 +29,55 @@ try {
 let activeAnalyses = 0;
 const MAX_CONCURRENT_ANALYSES = 2; // Allow 2 concurrent analyses for better responsiveness
 
+// Track analysis start times to detect stuck analyses
+const analysisStartTimes = new Map();
+
+// Auto-reset stuck analysis counter every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  const stuckThreshold = 10 * 60 * 1000; // 10 minutes
+
+  if (activeAnalyses > 0) {
+    let hasStuckAnalyses = false;
+    for (const [analysisId, startTime] of analysisStartTimes.entries()) {
+      if (now - startTime > stuckThreshold) {
+        console.warn(
+          `🔄 Auto-reset: Found stuck analysis ${analysisId} running for ${Math.floor(
+            (now - startTime) / 60000
+          )} minutes`
+        );
+        hasStuckAnalyses = true;
+        analysisStartTimes.delete(analysisId);
+      }
+    }
+
+    if (hasStuckAnalyses || analysisStartTimes.size === 0) {
+      console.warn(
+        `🔄 Auto-reset: Resetting stuck analysis counter from ${activeAnalyses} to 0`
+      );
+      activeAnalyses = 0;
+      analysisStartTimes.clear();
+    }
+  }
+}, 5 * 60 * 1000); // Check every 5 minutes
+
 // Utility to safely release the analysis slot only once
-const releaseAnalysisSlot = () => {
+const releaseAnalysisSlot = (analysisId = null) => {
   if (activeAnalyses > 0) {
     activeAnalyses -= 1;
-    console.log(
-      `✅ Released ML analysis slot (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
-    );
+    if (analysisId && analysisStartTimes.has(analysisId)) {
+      const duration = Date.now() - analysisStartTimes.get(analysisId);
+      analysisStartTimes.delete(analysisId);
+      console.log(
+        `✅ Released ML analysis slot ${analysisId} after ${Math.floor(
+          duration / 1000
+        )}s (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+      );
+    } else {
+      console.log(
+        `✅ Released ML analysis slot (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+      );
+    }
   } else {
     console.warn(`⚠️ Attempted to release analysis slot but none were active`);
   }
@@ -175,8 +217,12 @@ export const analyzeBehavior = async (req, res) => {
   }
 
   activeAnalyses += 1;
+  const analysisId = `analysis_${Date.now()}_${Math.random()
+    .toString(36)
+    .substr(2, 9)}`;
+  analysisStartTimes.set(analysisId, Date.now());
   console.log(
-    `🔄 Starting ML analysis (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+    `🔄 Starting ML analysis ${analysisId} (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
   );
   try {
     // FORCE ENABLE REAL ML - Python backend is working perfectly
@@ -205,7 +251,7 @@ export const analyzeBehavior = async (req, res) => {
         message: "Simulated ML analysis (Python ML disabled in production)",
       };
 
-      releaseAnalysisSlot(); // Ensure slot is released
+      releaseAnalysisSlot(analysisId); // Ensure slot is released
       return res.json({
         success: true,
         analysis: mockAnalysis,
@@ -224,7 +270,7 @@ export const analyzeBehavior = async (req, res) => {
         fallback: true,
         message: "Python not available – returning simulation result",
       };
-      releaseAnalysisSlot(); // Ensure slot is released
+      releaseAnalysisSlot(analysisId); // Ensure slot is released
       return res.json({ success: true, analysis: mockAnalysis });
     }
 
@@ -390,8 +436,8 @@ export const analyzeBehavior = async (req, res) => {
       // Set a timeout for the Python process (5 minutes)
       const timeout = setTimeout(() => {
         pythonProcess.kill("SIGTERM");
-        releaseAnalysisSlot();
-        console.error("Python process timed out after 5 minutes");
+        releaseAnalysisSlot(analysisId);
+        console.error(`Python process ${analysisId} timed out after 5 minutes`);
         res.status(408).json({
           success: false,
           message:
@@ -472,6 +518,7 @@ export const analyzeBehavior = async (req, res) => {
                 "Successfully parsed result despite error:",
                 analysisResult
               );
+              releaseAnalysisSlot(analysisId); // Release slot before return
               return res.json({
                 success: true,
                 analysis: analysisResult,
@@ -494,6 +541,7 @@ export const analyzeBehavior = async (req, res) => {
             fallback: true,
           };
 
+          releaseAnalysisSlot(analysisId); // Release slot before return
           return res.json({
             success: true,
             analysis: mockAnalysis,
@@ -515,6 +563,7 @@ export const analyzeBehavior = async (req, res) => {
               fallback: true,
             };
 
+            releaseAnalysisSlot(analysisId); // Release slot before return
             return res.json({
               success: true,
               analysis: mockAnalysis,
@@ -548,6 +597,9 @@ export const analyzeBehavior = async (req, res) => {
             rapidTalking:
               behaviorType === "rapid_talking" && analysisResult.detected,
           };
+
+          // Release analysis slot before sending response
+          releaseAnalysisSlot(analysisId);
 
           res.json({
             detected: Object.values(detectionResults).some(Boolean),
@@ -593,6 +645,7 @@ export const analyzeBehavior = async (req, res) => {
             fallback: true,
           };
 
+          releaseAnalysisSlot(analysisId); // Release slot before return
           res.json({
             success: true,
             analysis: mockAnalysis,
@@ -631,6 +684,7 @@ export const analyzeBehavior = async (req, res) => {
           message: "Simulated ML analysis (Python ML unavailable)",
         };
 
+        releaseAnalysisSlot(analysisId); // Release slot before return
         res.json({
           success: true,
           analysis: mockAnalysis,
@@ -643,7 +697,7 @@ export const analyzeBehavior = async (req, res) => {
         message: "Failed to prepare data for ML analysis",
         error: fileError.message,
       });
-      releaseAnalysisSlot();
+      releaseAnalysisSlot(analysisId);
     }
   } catch (error) {
     console.error("ML Controller Error:", error);
@@ -652,7 +706,7 @@ export const analyzeBehavior = async (req, res) => {
       message: "Internal server error",
       error: error.message,
     });
-    releaseAnalysisSlot();
+    releaseAnalysisSlot(analysisId);
   }
 };
 
