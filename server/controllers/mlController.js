@@ -25,13 +25,19 @@ try {
   }
 }
 
-// Simple concurrency guard – limits heavy ML analysis to one at a time to avoid OOM/502
+// Simple concurrency guard – limits heavy ML analysis to avoid OOM/502
 let activeAnalyses = 0;
+const MAX_CONCURRENT_ANALYSES = 2; // Allow 2 concurrent analyses for better responsiveness
 
 // Utility to safely release the analysis slot only once
 const releaseAnalysisSlot = () => {
   if (activeAnalyses > 0) {
     activeAnalyses -= 1;
+    console.log(
+      `✅ Released ML analysis slot (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+    );
+  } else {
+    console.warn(`⚠️ Attempted to release analysis slot but none were active`);
   }
 };
 
@@ -157,16 +163,21 @@ function applyIntelligentFiltering(result, behaviorType) {
 
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
-  // If a heavy analysis is already in progress, immediately reject to keep RAM under control
-  if (activeAnalyses >= 1) {
+  // Check concurrency limit to avoid OOM/502 errors
+  if (activeAnalyses >= MAX_CONCURRENT_ANALYSES) {
+    console.warn(
+      `🚫 Rate limit: ${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} concurrent analyses running`
+    );
     return res.status(429).json({
       success: false,
-      message:
-        "Server is busy processing another ML request – try again in a moment.",
+      message: `Server is busy processing ${activeAnalyses} ML requests. Max concurrent: ${MAX_CONCURRENT_ANALYSES}. Try again in a moment.`,
     });
   }
 
   activeAnalyses += 1;
+  console.log(
+    `🔄 Starting ML analysis (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+  );
   try {
     // FORCE ENABLE REAL ML - Python backend is working perfectly
     const shouldUseSimulation = false; // Always use real ML
@@ -194,6 +205,7 @@ export const analyzeBehavior = async (req, res) => {
         message: "Simulated ML analysis (Python ML disabled in production)",
       };
 
+      releaseAnalysisSlot(); // Ensure slot is released
       return res.json({
         success: true,
         analysis: mockAnalysis,
@@ -212,6 +224,7 @@ export const analyzeBehavior = async (req, res) => {
         fallback: true,
         message: "Python not available – returning simulation result",
       };
+      releaseAnalysisSlot(); // Ensure slot is released
       return res.json({ success: true, analysis: mockAnalysis });
     }
 
@@ -641,6 +654,20 @@ export const analyzeBehavior = async (req, res) => {
     });
     releaseAnalysisSlot();
   }
+};
+
+// Reset analysis counter (for debugging stuck states)
+export const resetAnalysisCounter = async (req, res) => {
+  const previousCount = activeAnalyses;
+  activeAnalyses = 0;
+  console.log(`🔄 Reset analysis counter from ${previousCount} to 0`);
+  res.json({
+    success: true,
+    message: `Analysis counter reset from ${previousCount} to 0`,
+    previousCount,
+    currentCount: 0,
+    maxConcurrent: MAX_CONCURRENT_ANALYSES,
+  });
 };
 
 // Get ML model status

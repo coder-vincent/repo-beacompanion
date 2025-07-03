@@ -5,6 +5,7 @@ import {
   getModelStatus,
   batchAnalysis,
   evaluateDataset,
+  resetAnalysisCounter,
 } from "../controllers/mlController.js";
 
 const mlRouter = express.Router();
@@ -30,5 +31,6 @@ mlRouter.post("/analyze", mlDataMiddleware, analyzeBehavior);
 mlRouter.get("/status", getModelStatus);
 mlRouter.post("/batch", mlDataMiddleware, batchAnalysis);
 mlRouter.post("/evaluate", mlDataMiddleware, evaluateDataset);
+mlRouter.post("/reset-counter", resetAnalysisCounter);
 
 export default mlRouter;
