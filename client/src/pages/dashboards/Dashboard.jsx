@@ -2520,6 +2520,17 @@ const Dashboard = () => {
     }
   };
 
+  // Utility: human-friendly label for behaviors
+  const formatBehaviorLabel = (behavior) => {
+    if (behavior === "sit_stand") return "Sitting/Standing";
+
+    // Convert snake_case to "Title Case"
+    const titled = behavior
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return titled;
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       <SidebarProvider className="flex flex-col">
@@ -2926,7 +2937,7 @@ const Dashboard = () => {
                                             : "Normal"}
                                         </Badge>
                                         <span className="text-xs md:text-sm font-medium capitalize">
-                                          {behavior.replace("_", " ")}
+                                          {formatBehaviorLabel(behavior)}
                                         </span>
                                       </div>
                                       {data.detected && (
@@ -2992,7 +3003,7 @@ const Dashboard = () => {
                                             : "Normal"}
                                         </Badge>
                                         <span className="text-xs md:text-sm font-medium capitalize">
-                                          {behavior.replace("_", " ")}
+                                          {formatBehaviorLabel(behavior)}
                                         </span>
                                       </div>
                                       {data.detected && (
@@ -3098,7 +3109,7 @@ const Dashboard = () => {
                                   >
                                     <div className="flex items-center justify-between mb-3">
                                       <h3 className="text-lg font-semibold capitalize">
-                                        {behavior.replace("_", " ")}
+                                        {formatBehaviorLabel(behavior)}
                                       </h3>
                                       <Badge variant="outline">
                                         {data.count} detections
@@ -3498,8 +3509,7 @@ const Dashboard = () => {
                                             {getBehaviorIcon()}
                                           </div>
                                           <h3 className="text-base md:text-lg font-semibold">
-                                            {data.behaviorType ||
-                                              behavior.replace("_", " ")}
+                                            {formatBehaviorLabel(behavior)}
                                           </h3>
                                         </div>
                                         <Badge

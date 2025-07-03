@@ -328,14 +328,32 @@ export const analyzeBehavior = async (req, res) => {
       let result = "";
       let error = "";
 
+      // --------------------------------------------------------------------
+      // Filter Python stderr — drop repetitive Mediapipe / TFLite INFO &
+      // WARNING spam so the server logs remain readable while preserving
+      // genuine errors.
+      // --------------------------------------------------------------------
+
+      const noisePatterns = [
+        /INFO: Created TensorFlow Lite XNNPACK delegate/i,
+        /Feedback manager requires a model with a single signature inference/i,
+        /All log messages before absl::InitializeLog\(\) is called/i,
+        /Using NORM_RECT without IMAGE_DIMENSIONS is only supported/i,
+      ];
+
       pythonProcess.stdout.on("data", (data) => {
         result += data.toString();
       });
 
       pythonProcess.stderr.on("data", (data) => {
-        error += data.toString();
-        // Log full stderr output for debugging
-        console.error("Python script stderr:", data.toString());
+        const text = data.toString();
+        // Discard if matches any known noise pattern
+        if (noisePatterns.some((rx) => rx.test(text))) {
+          return; // Skip logging & accumulation
+        }
+
+        error += text;
+        console.error("Python script stderr:", text);
       });
 
       pythonProcess.on("close", (code) => {

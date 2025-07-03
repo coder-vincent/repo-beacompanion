@@ -31,24 +31,97 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-# Local util that loads and caches models
+# External deps -------------------------------------------------------------
+
+# Local util that loads and caches models (and is rather chatty). We import it
+# and *call* it with stdout/stderr fully captured so none of its diagnostic
+# prints escape.
 _silent = io.StringIO()
-with contextlib.redirect_stdout(_silent):
+with contextlib.redirect_stdout(_silent), contextlib.redirect_stderr(_silent):
     from model_loader import load_all_models
 
-# For eye gaze preprocessing
+# Later, when actually loading weights, capture again:
+with contextlib.redirect_stdout(_silent), contextlib.redirect_stderr(_silent):
+    MODELS = load_all_models()
+
+# For eye gaze preprocessing -------------------------------------------------
+
 import numpy as np
-import mediapipe as mp
+
+# Mediapipe emits many C++ backend INFO/WARNING messages on import. Capture
+# stderr during import so those lines don't reach the parent process.
+_mp_silent = io.StringIO()
+with contextlib.redirect_stderr(_mp_silent):
+    import mediapipe as mp  # type: ignore
+
+# ---------------------------------------------------------------------------
+# Logging / Verbosity configuration (must come before importing TensorFlow /
+# Mediapipe so that these libs respect the settings).
+# ---------------------------------------------------------------------------
+
+# 1. Suppress TensorFlow / TF-Lite C++ backend INFO & WARNING messages.
+#    0 = all logs, 1 = INFO, 2 = WARNING, 3 = ERROR
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # Show only errors
+
+# 2. Silence Mediapipe & absl logging noise (e.g. XNNPACK delegate, feedback
+#    tensors warnings) while keeping real errors visible.
+try:
+    from absl import logging as _absl_logging  # type: ignore
+
+    _absl_logging.set_verbosity(_absl_logging.ERROR)
+    _absl_logging.set_stderrthreshold(_absl_logging.ERROR)
+except (ImportError, ModuleNotFoundError):
+    # absl is a transitive dependency of mediapipe. If it isn't available,
+    # continue – the worst case is slightly chattier logs.
+    pass
+
+# Standard Python logging for other noisy modules (including mediapipe).
+import logging as _py_logging
+_py_logging.getLogger("mediapipe").setLevel(_py_logging.ERROR)
+
+# ---------------------------------------------------------------------------
+# Runtime stderr filter — hides recurring INFO/WARNING spam emitted by the
+# TFLite / Mediapipe C++ backend that isn't controllable via the usual
+# TF_CPP_MIN_LOG_LEVEL or absl settings. Genuine error messages are still
+# forwarded.
+# ---------------------------------------------------------------------------
+
+_SILENCE_PATTERNS = (
+    "INFO: Created TensorFlow Lite XNNPACK delegate",  # TFLite delegate info
+    "Feedback manager requires a model with a single signature inference",  # TFLite feedback warning
+    "All log messages before absl::InitializeLog() is called",  # absl pre-init
+    "Using NORM_RECT without IMAGE_DIMENSIONS is only supported",  # Mediapipe projection calc
+)
+
+
+class _StderrFilter(io.TextIOBase):
+    """Intercept sys.stderr writes and drop lines matching noisy patterns."""
+
+    def __init__(self, original):
+        self._original = original
+
+    def write(self, data):  # type: ignore[override]
+        # Pass through everything that doesn't match a known noisy pattern.
+        if any(pat in data for pat in _SILENCE_PATTERNS):
+            return len(data)
+        return self._original.write(data)
+
+    def flush(self):  # type: ignore[override]
+        return self._original.flush()
+
+
+# Replace sys.stderr with the filtering wrapper **after** we've set up other
+# redirections/logging tweaks so it only affects runtime emissions.
+sys.stderr = _StderrFilter(sys.stderr)
 
 # ---------------------------------------------------------------------------
 # Globals
 # ---------------------------------------------------------------------------
 
+# DEVICE available if needed (but models already loaded).
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Load *once* so subsequent calls are fast
-MODELS = load_all_models()
-
+# MODELS already initialised in silenced block above.
 
 # Common image transform (matches notebook training — 64×64 RGB, no normalisation)
 IMAGE_SIZE = 64
@@ -58,11 +131,16 @@ _IMAGE_TF = transforms.Compose([
 ])
 
 # Mediapipe FaceMesh for eye region extraction
-_mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    refine_landmarks=False,
-)
+# type: ignore[attr-defined] is needed because the Mediapipe Python stubs do
+# not currently expose the FaceMesh/Hands/Pose attributes, even though they
+# exist at runtime.
+
+with contextlib.redirect_stderr(_mp_silent):
+    _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(  # type: ignore[attr-defined]
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=False,
+    )
 
 # Landmarks indices around both eyes (approx.)
 _EYE_IDXS = [
@@ -71,8 +149,13 @@ _EYE_IDXS = [
 ]
 
 # MediaPipe Hands and Pose instances
-_mp_hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2)
-_mp_pose = mp.solutions.pose.Pose(static_image_mode=True)
+# type: ignore[attr-defined] is needed because the Mediapipe Python stubs do
+# not currently expose the FaceMesh/Hands/Pose attributes, even though they
+# exist at runtime.
+
+with contextlib.redirect_stderr(_mp_silent):
+    _mp_hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2)  # type: ignore[attr-defined]
+    _mp_pose = mp.solutions.pose.Pose(static_image_mode=True)  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
