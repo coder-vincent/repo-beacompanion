@@ -24,6 +24,8 @@ const allowedOrigins =
   process.env.NODE_ENV === "production"
     ? [
         "https://repo-beacompanion.vercel.app", // Vercel frontend
+        "https://repo-beacompanion-server.onrender.com", // Render backend
+        "https://beacompanion.online", // Domain Name
         process.env.CLIENT_URL, // Additional client URL if set
       ].filter(Boolean)
     : [
