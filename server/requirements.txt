@@ -25,6 +25,9 @@ scikit-learn==1.3.0
 # Basic utilities
 pyyaml==6.0.1
 
+# Speech-to-text library used in some ML notebooks/utilities
+SpeechRecognition==3.10.0
+
 # Note: ML packages disabled for cloud deployment
 # Uncomment for local development:
 # opencv-python-headless==4.8.0.76

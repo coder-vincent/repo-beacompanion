@@ -12,3 +12,4 @@ pytest  # For unit testing
 tensorboard  # If using logs
 pillow
 mediapipe
+SpeechRecognition

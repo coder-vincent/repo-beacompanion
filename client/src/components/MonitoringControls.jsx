@@ -8,8 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Play, Square, Eye, XCircle } from "lucide-react";
-import toast from "react-hot-toast";
+import { Play, Square, XCircle } from "lucide-react";
 
 const MonitoringControls = ({
   monitoring,
@@ -17,7 +16,6 @@ const MonitoringControls = ({
   stopMonitoring,
   handleAnalyzeNow,
   manualAnalysisIntervalId,
-  checkCameraStatus,
   error,
 }) => {
   return (
@@ -64,21 +62,6 @@ const MonitoringControls = ({
               >
                 <span className="h-4 w-4">🧠</span>
                 Analyze Now (+ Speech)
-              </Button>
-              <Button
-                onClick={() => {
-                  const status = checkCameraStatus();
-                  if (status) {
-                    toast.success("Camera is working properly");
-                  } else {
-                    toast.error("Camera issue detected - check console");
-                  }
-                }}
-                variant="outline"
-                className="flex items-center gap-2 w-full sm:w-auto"
-              >
-                <Eye className="h-4 w-4" />
-                Check Status
               </Button>
             </>
           )}

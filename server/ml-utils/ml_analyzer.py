@@ -1519,10 +1519,11 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
             frames_tensor = torch.stack(crops, dim=0).unsqueeze(0).to(DEVICE)  # (1, T, C, H, W)
             logits = model(frames_tensor)  # shape (1, 5)
 
-            probs = torch.softmax(logits, dim=1)[0]
+            probs = torch.softmax(logits, dim=1)[0]  # type: ignore[index]
             prob, idx = probs.max(dim=0)
             gaze_classes = ["down", "left", "right", "straight", "up"]
-            label = gaze_classes[idx.item()] if idx < len(gaze_classes) else str(idx.item())
+            idx_int: int = int(idx.item())
+            label = gaze_classes[idx_int] if idx_int < len(gaze_classes) else str(idx_int)
 
             return {
                 "detected": True,
@@ -1627,9 +1628,42 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
                 }
 
         elif behavior == "rapid_talking":
+            # -----------------------------------------------------------
+            # Rapid talking – confidence based on average WPM thresholds
+            #   • avg WPM < 150  → confidence = 0.1 (not detected)
+            #   • 150 ≤ avg WPM < 200 → confidence = 0.5 (moderately detected)
+            #   • avg WPM ≥ 200 → confidence = 1.0 (strongly detected)
+            # -----------------------------------------------------------
+
             seq = data if isinstance(data, list) else data.get(behavior) or []
-            seq_tensor = torch.tensor(seq, dtype=torch.float32).view(1, -1, 1).to(DEVICE)
-            prob = model(seq_tensor).squeeze().item()
+
+            # Filter out any non-numeric values so they don't break the math
+            numeric_vals = [float(x) for x in seq if isinstance(x, (int, float))]
+
+            if not numeric_vals:
+                print("[rapid_talking] No numeric WPM values provided – confidence=0.0 (detected=False)", file=sys.stderr)
+                result = {"detected": False, "confidence": 0.0}
+                return result
+
+            avg_wpm = sum(numeric_vals) / len(numeric_vals)
+            print(f"[rapid_talking] Avg WPM across {len(numeric_vals)} samples = {avg_wpm:.2f}", file=sys.stderr)
+
+            if avg_wpm < 150:
+                prob = 0.1
+                detected = False
+            elif avg_wpm < 200:
+                prob = 0.5
+                detected = True  # Only detect in 150–200 WPM range
+            else:
+                prob = 1.0
+                detected = False  # ≥200 WPM -> very rapid, but NOT flagged per new requirement
+
+            print(
+                f"[rapid_talking] Confidence={prob:.2f}, detected={detected} (150–200 only rule)",
+                file=sys.stderr,
+            )
+
+            return {"detected": detected, "confidence": round(prob, 4)}
 
         else:
             prob = 0.0
@@ -1637,7 +1671,8 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
         prob = float(max(0.0, min(1.0, prob)))  # clamp to [0,1]
         detected = bool(prob > 0.3)  # Convert to Python bool
         result = {"detected": detected, "confidence": round(prob, 4)}
-        print(f"[{behavior}] RESULT: detected={detected}, confidence={prob:.4f} (from PyTorch model)", file=sys.stderr)
+        source = "avg_wpm_rule" if behavior == "rapid_talking" else "PyTorch model"
+        print(f"[{behavior}] RESULT: detected={detected}, confidence={prob:.4f} ({source})", file=sys.stderr)
         return result
 
     except Exception as exc:

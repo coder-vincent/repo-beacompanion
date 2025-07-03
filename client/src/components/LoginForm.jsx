@@ -116,6 +116,8 @@ const LoginForm = ({
             <User className="text-muted-foreground" />
             <Input
               type="text"
+              name="name"
+              autoComplete="name"
               placeholder="Full Name"
               required
               className="w-full"
@@ -129,22 +131,26 @@ const LoginForm = ({
           <AtSign className="text-muted-foreground" />
           <Input
             type="email"
+            name="email"
             placeholder="Email"
             required
             className="w-full"
             onChange={(e) => setEmail(e.target.value)}
             value={email}
+            autoComplete="username"
           />
         </div>
         <div className="mb-4 flex items-center gap-3 w-full px-0 sm:px-5 py-2.5">
           <Lock className="text-muted-foreground" />
           <Input
             type="password"
+            name="password"
             placeholder="Password"
             required
             className="w-full"
             onChange={(e) => setPassword(e.target.value)}
             value={password}
+            autoComplete="current-password"
           />
         </div>
 

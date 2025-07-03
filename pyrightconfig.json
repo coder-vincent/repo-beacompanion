@@ -1,0 +1,13 @@
+{
+  "include": ["server", "machine-learning/utils"],
+  "exclude": [
+    "**/*.ipynb",
+    "server/ml-models/**",
+    "machine-learning/models/**",
+    "machine-learning/experiments/**",
+    "server/ml-models/speech/rapid_talking.ipynb"
+  ],
+  "reportAttributeAccessIssue": "warning",
+  "reportOperatorIssue": "warning",
+  "typeCheckingMode": "basic"
+}
