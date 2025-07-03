@@ -18,31 +18,18 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import SessionAnalyticsModal from "@/components/SessionAnalyticsModal";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Video,
-  VideoOff,
   Activity,
   Clock,
   AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Play,
-  Square,
   RotateCcw,
   BarChart3,
-  Eye,
-  Brain,
-  Heart,
-  Settings,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import VideoFeed from "@/components/VideoFeed";
+import BehaviorAnalysisPanel from "@/components/BehaviorAnalysisPanel";
+import MonitoringControls from "@/components/MonitoringControls";
 
 const Dashboard = () => {
   const { backendUrl, userData, isLoggedIn } = useContext(AppContext);
@@ -105,9 +92,10 @@ const Dashboard = () => {
   const [lastSpeechActivity, setLastSpeechActivity] = useState(Date.now());
   const [rapidTalkingStatus, setRapidTalkingStatus] =
     useState("⏸️ Click to start");
-  const [speechRecognizer, setSpeechRecognizer] = useState(null);
   const [speechRecognitionActive, setSpeechRecognitionActive] = useState(false);
   const [speechSessionStartTime, setSpeechSessionStartTime] = useState(null);
+  // Duration for each speech-collection session (milliseconds)
+  const SPEECH_SESSION_MS = 20_000; // 20-second window instead of full minute
   const [shouldKeepSpeechActive, setShouldKeepSpeechActive] = useState(false);
   const [sessionWordCount, setSessionWordCount] = useState(0);
   const sessionStartTimeRef = useRef(null);
@@ -117,12 +105,21 @@ const Dashboard = () => {
   const [lastFrame, setLastFrame] = useState(null);
   const [motionThreshold, setMotionThreshold] = useState(60); // Much higher - only major movements (was 30)
 
+  // Declare ref near speechRecognizer ref
+  const [speechRecognizer, setSpeechRecognizer] = useState(null);
+  const speechStartingRef = useRef(false);
+
   const detectMotion = () => {
     if (!videoRef.current || !canvasRef.current) return false;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const video = videoRef.current;
+
+    // Guard: video not ready yet
+    if (!video.videoWidth || !video.videoHeight) {
+      return false;
+    }
 
     // Capture current frame
     canvas.width = video.videoWidth;
@@ -171,58 +168,24 @@ const Dashboard = () => {
     setLastFrame(currentPixels);
 
     const motionDetected = averageChange > motionThreshold;
-    if (motionDetected) {
-      console.log(
-        `🏃 SIGNIFICANT body motion detected! Average change: ${averageChange.toFixed(
-          2
-        )} (threshold: ${motionThreshold}) - triggering sit-stand analysis`
-      );
-    } else if (averageChange > 15) {
-      // Log near-misses for debugging
-      console.log(
-        `🤏 Minor movement detected: ${averageChange.toFixed(
-          2
-        )} (threshold: ${motionThreshold}) - not enough for sit-stand analysis`
-      );
-    }
 
     return motionDetected;
   };
 
-  useEffect(() => {
-    // Skip automatic initialization - use manual control instead to prevent infinite loops
-    console.log(
-      "ℹ️  Speech Recognition available - click 'Test Speech' to start"
-    );
-    setRapidTalkingStatus("⏸️ Click to start");
-  }, []);
-
   // Manual speech recognition starter with forced 1-minute session
   const startSpeechRecognitionManually = async () => {
-    console.log("🎤 === SPEECH RECOGNITION START FUNCTION CALLED ===");
-    console.log(
-      "Current states - shouldKeepSpeechActive:",
-      shouldKeepSpeechActive,
-      "speechRecognitionActive:",
-      speechRecognitionActive
-    );
-
     try {
       // If already in a session, don't start another
       if (shouldKeepSpeechActive) {
-        console.log("🎤 Speech session already active");
         setRapidTalkingStatus("🔄 Session already running...");
         return;
       }
-
-      console.log("🎤 Starting 1-minute speech collection session...");
       setRapidTalkingStatus("🔄 Requesting microphone access...");
 
       // Check if speech recognition is supported first
       if (
         !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
       ) {
-        console.error("❌ Speech Recognition not supported in this browser");
         setRapidTalkingStatus("❌ Speech Recognition not supported");
         return;
       }
@@ -232,16 +195,14 @@ const Dashboard = () => {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-        console.log("✅ Microphone permission granted");
-        setRapidTalkingStatus("✅ Starting 1-minute collection...");
+        setRapidTalkingStatus("✅ Starting 20-second collection...");
         stream.getTracks().forEach((track) => track.stop());
       } catch (permError) {
-        console.error("❌ Microphone permission denied:", permError);
         setRapidTalkingStatus("❌ Microphone denied - click to retry");
         return;
       }
 
-      // Start the 1-minute session
+      // Start the speech collection session (20 s)
       const sessionStart = Date.now();
       setSpeechSessionStartTime(sessionStart);
       setShouldKeepSpeechActive(true);
@@ -251,34 +212,8 @@ const Dashboard = () => {
       // Start the actual speech recognition
       startSpeechRecognition();
 
-      // Set up forced restart every 4 seconds to keep listening for full minute
-      speechRestartIntervalRef.current = setInterval(() => {
-        const elapsed = (Date.now() - sessionStart) / 1000;
-        if (elapsed < 60 && shouldKeepSpeechActive) {
-          console.log(
-            `🔄 Forced restart at ${elapsed.toFixed(
-              0
-            )}s to maintain 1-minute session`
-          );
-          startSpeechRecognition();
-        } else if (elapsed >= 60) {
-          // 1 minute completed
-          console.log("🏁 1-minute collection completed");
-          completeSpeechSession();
-        }
-      }, 4000); // Restart every 4 seconds
-
-      // Failsafe - stop after exactly 60 seconds
-      setTimeout(() => {
-        if (shouldKeepSpeechActive) {
-          console.log("⏰ 60-second timer expired - completing session");
-          completeSpeechSession();
-        }
-      }, 60000);
-
-      console.log("🚀 1-minute speech collection session started");
+      // Restart recognizer automatically inside its 'onend' handler.
     } catch (error) {
-      console.error("❌ Speech recognition failed:", error);
       setSpeechRecognitionActive(false);
       setShouldKeepSpeechActive(false);
       setSpeechSessionStartTime(null);
@@ -290,14 +225,11 @@ const Dashboard = () => {
   // Internal function to start actual speech recognition
   const startSpeechRecognition = () => {
     try {
-      // Stop existing recognizer if any
-      if (speechRecognizer) {
-        try {
-          speechRecognizer.stop();
-        } catch (error) {
-          // Ignore stop errors
-        }
+      if (speechRecognitionActive || speechStartingRef.current) {
+        // Already running or starting
+        return;
       }
+      speechStartingRef.current = true;
 
       const SpeechRecognition =
         window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -308,8 +240,9 @@ const Dashboard = () => {
       recognizer.lang = "en-US";
 
       recognizer.onstart = () => {
-        console.log("🟢 Speech Recognition chunk started");
+        console.log("[Speech] recognizer started");
         setSpeechRecognitionActive(true);
+        speechStartingRef.current = false;
       };
 
       recognizer.onresult = (e) => {
@@ -325,18 +258,21 @@ const Dashboard = () => {
           if (e.results[i].isFinal) {
             if (transcript.length > 0) {
               finalWordsInThisBatch += transcript.split(/\s+/).length;
-              console.log(
-                `🎙️ Final speech: "${transcript}" (${
-                  transcript.split(/\s+/).length
-                } words)`
-              );
-            }
-          } else {
-            if (transcript.length > 0) {
-              console.log(`🔄 Interim speech: "${transcript}"`);
             }
           }
         }
+
+        // Debug: live WPM estimate
+        const elapsedSec =
+          (Date.now() - (sessionStartTimeRef.current || Date.now())) / 1000 ||
+          1;
+        const liveWpm =
+          (sessionWordCount + finalWordsInThisBatch) / (elapsedSec / 60);
+        console.log(
+          `[Speech] live words=${
+            sessionWordCount + finalWordsInThisBatch
+          }  WPM≈${liveWpm.toFixed(1)}`
+        );
 
         // Add final words to session count
         if (finalWordsInThisBatch > 0) {
@@ -345,87 +281,93 @@ const Dashboard = () => {
 
         // Update status with progress
         if (shouldKeepSpeechActive && sessionStartTimeRef.current) {
-          const elapsed = (Date.now() - sessionStartTimeRef.current) / 1000;
-          const remaining = Math.max(0, 60 - elapsed);
+          const elapsedMs = Date.now() - sessionStartTimeRef.current;
+          const remaining = Math.max(
+            0,
+            Math.ceil((SPEECH_SESSION_MS - elapsedMs) / 1000)
+          );
           if (remaining > 0) {
             setRapidTalkingStatus(
               `🕐 Collecting... ${
                 sessionWordCount + finalWordsInThisBatch
-              } words (${Math.ceil(remaining)}s left)`
+              } words (${remaining}s left)`
             );
           }
         }
       };
 
       recognizer.onerror = (event) => {
-        console.log(
-          `🔴 Speech Recognition error: ${event.error} (will restart automatically)`
-        );
+        // Chrome often emits benign 'aborted' / 'no-speech' errors when restarting – treat them as warnings
+        if (event.error === "aborted" || event.error === "no-speech") {
+          console.warn(`[Speech] benign error: ${event.error}`);
+        } else {
+          console.error("[Speech] recognizer error", event);
+          toast.error(`Speech recognition error: ${event.error || "unknown"}`);
+        }
         setSpeechRecognitionActive(false);
-        // Don't handle errors - let the interval restart handle it
+        speechStartingRef.current = false;
+
+        // Auto-restart on benign errors (aborted / no-speech)
+        const stillInWindow =
+          shouldKeepSpeechActive &&
+          speechSessionStartTime &&
+          Date.now() - speechSessionStartTime < SPEECH_SESSION_MS;
+
+        if (stillInWindow) {
+          setTimeout(() => startSpeechRecognition(), 500);
+        } else if (shouldKeepSpeechActive) {
+          completeSpeechSession();
+        }
       };
 
       recognizer.onend = () => {
-        console.log(
-          "🔄 Speech Recognition chunk ended (auto-restart will handle)"
-        );
+        console.log("[Speech] recognizer ended");
         setSpeechRecognitionActive(false);
-        // Don't handle restart here - let the interval handle it
+        speechStartingRef.current = false;
+        // Auto-restart if session still active within window
+        const stillInWindow =
+          shouldKeepSpeechActive &&
+          speechSessionStartTime &&
+          Date.now() - speechSessionStartTime < SPEECH_SESSION_MS;
+
+        if (stillInWindow) {
+          setTimeout(() => startSpeechRecognition(), 500);
+        } else if (shouldKeepSpeechActive) {
+          completeSpeechSession();
+        }
       };
 
       recognizer.start();
       setSpeechRecognizer(recognizer);
     } catch (error) {
-      console.error("❌ Speech recognition chunk failed:", error);
       setSpeechRecognitionActive(false);
     }
   };
 
   // Complete the speech session and calculate WPM
   const completeSpeechSession = () => {
-    console.log("🏁 Completing 1-minute speech session...");
-
     // Stop everything
     setShouldKeepSpeechActive(false);
     setSpeechSessionStartTime(null);
     setSpeechRecognitionActive(false);
 
-    // Clear interval
-    if (speechRestartIntervalRef.current) {
-      clearInterval(speechRestartIntervalRef.current);
-      speechRestartIntervalRef.current = null;
-    }
-
-    // Stop speech recognizer
-    if (speechRecognizer) {
-      try {
-        speechRecognizer.stop();
-      } catch (error) {
-        // Ignore stop errors
-      }
-    }
-
-    // Calculate final WPM
-    const finalWpm = sessionWordCount; // 1 minute = exact WPM
     console.log(
-      `📈 FINAL WPM CALCULATION: ${finalWpm} WPM (${sessionWordCount} words in 1 minute)`
+      `[Speech] session complete – words=${sessionWordCount}, duration=${SPEECH_SESSION_MS} ms`
     );
 
-    // Rapid talking detection: Normal speech is 125-150 WPM, rapid is 180+ WPM
-    const rapidTalkingThreshold = 180; // Professional threshold for rapid talking
-    const fastTalkingThreshold = 160; // Fast but not necessarily rapid
+    // Calculate final WPM based on actual session duration
+    const minutes = SPEECH_SESSION_MS / 60000;
+    const finalWpm = minutes > 0 ? sessionWordCount / minutes : 0;
+
+    // Updated thresholds – Rapid talking ≥ 180 WPM, Fast talking ≥ 150 WPM
+    const rapidTalkingThreshold = 180;
+    const fastTalkingThreshold = 150;
 
     if (finalWpm >= rapidTalkingThreshold) {
-      console.log(
-        `🚨 RAPID TALKING DETECTED: ${finalWpm} WPM! (Threshold: ${rapidTalkingThreshold}+ WPM)`
-      );
-      setRapidTalkingStatus(`🚨 RAPID TALKING: ${finalWpm} WPM!`);
+      setRapidTalkingStatus(`🚨 RAPID TALKING: ${finalWpm.toFixed(1)} WPM!`);
 
       setWpmSeq((prev) => {
         const newArr = [...prev, finalWpm].slice(-10);
-        console.log(
-          `📊 WPM update: [${newArr.map((w) => w.toFixed(1)).join(", ")}]`
-        );
 
         // Trigger rapid talking analysis
         setTimeout(() => {
@@ -435,16 +377,10 @@ const Dashboard = () => {
         return newArr;
       });
     } else if (finalWpm >= fastTalkingThreshold) {
-      console.log(
-        `⚡ Fast talking: ${finalWpm} WPM (not rapid yet - threshold: ${rapidTalkingThreshold}+ WPM)`
-      );
-      setRapidTalkingStatus(`⚡ Fast: ${finalWpm} WPM`);
+      setRapidTalkingStatus(`⚡ Fast: ${finalWpm.toFixed(1)} WPM`);
       setWpmSeq((prev) => [...prev, finalWpm].slice(-10));
     } else {
-      console.log(
-        `🎤 Normal speech: ${finalWpm} WPM (rapid talking threshold: ${rapidTalkingThreshold}+ WPM)`
-      );
-      setRapidTalkingStatus(`🎤 Normal: ${finalWpm} WPM`);
+      setRapidTalkingStatus(`🎤 Normal: ${finalWpm.toFixed(1)} WPM`);
       setWpmSeq((prev) => [...prev, finalWpm].slice(-10));
     }
 
@@ -452,75 +388,14 @@ const Dashboard = () => {
     setSessionWordCount(0);
   };
 
-  // Diagnostic function to test speech recognition setup
-  const testSpeechRecognitionSetup = async () => {
-    console.log("🔧 === SPEECH RECOGNITION DIAGNOSTIC TEST ===");
-
-    // Test 1: Check if APIs are available
-    const hasWebSpeech =
-      "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-    const hasMediaDevices =
-      "mediaDevices" in navigator && "getUserMedia" in navigator.mediaDevices;
-
-    console.log("Web Speech API available:", hasWebSpeech);
-    console.log("Media Devices API available:", hasMediaDevices);
-
-    if (!hasWebSpeech) {
-      setRapidTalkingStatus("❌ Web Speech API not supported");
-      return;
-    }
-
-    if (!hasMediaDevices) {
-      setRapidTalkingStatus("❌ Microphone API not supported");
-      return;
-    }
-
-    // Test 2: Check microphone permissions
-    try {
-      setRapidTalkingStatus("🔧 Testing microphone...");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log("✅ Microphone test passed");
-      stream.getTracks().forEach((track) => track.stop());
-
-      // Test 3: Try creating speech recognizer
-      const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
-      const testRecognizer = new SpeechRecognition();
-      console.log("✅ Speech recognizer created successfully");
-
-      setRapidTalkingStatus("✅ All tests passed - ready!");
-      setTimeout(() => {
-        setRapidTalkingStatus("⏸️ Click to start");
-      }, 2000);
-    } catch (error) {
-      console.error("❌ Diagnostic test failed:", error);
-      setRapidTalkingStatus("❌ Test failed - check permissions");
-    }
-  };
-
   // Stop speech recognition
   const stopSpeechRecognition = () => {
-    console.log("🛑 Manually stopping speech recognition...");
-
     setShouldKeepSpeechActive(false);
     setSpeechSessionStartTime(null);
     setSessionWordCount(0);
     setSpeechRecognitionActive(false);
 
-    // Clear interval
-    if (speechRestartIntervalRef.current) {
-      clearInterval(speechRestartIntervalRef.current);
-      speechRestartIntervalRef.current = null;
-    }
-
-    // Stop recognizer
-    if (speechRecognizer) {
-      try {
-        speechRecognizer.stop();
-      } catch (error) {
-        // Ignore stop errors
-      }
-    }
+    // No restart interval now
 
     setRapidTalkingStatus("⏸️ Stopped - click to start");
   };
@@ -531,7 +406,6 @@ const Dashboard = () => {
       const timeSinceLastSpeech = Date.now() - lastSpeechActivity;
       if (timeSinceLastSpeech > 30000 && wpmSeq.length > 0) {
         // 30 seconds
-        console.log("🧹 Clearing stale WPM data after 30 seconds of silence");
         setWpmSeq([]);
       }
     }, 5000); // Check every 5 seconds
@@ -570,25 +444,16 @@ const Dashboard = () => {
       // Check if Web Speech API is supported
       const speechSupported =
         "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-      console.log(`🎤 Speech Recognition supported: ${speechSupported}`);
 
       // Check microphone permission
       if (navigator.permissions) {
         const permission = await navigator.permissions.query({
           name: "microphone",
         });
-        console.log(`🎤 Microphone permission: ${permission.state}`);
-
-        permission.onchange = () => {
-          console.log(
-            `🔄 Microphone permission changed to: ${permission.state}`
-          );
-        };
       }
 
       // Test if we can access microphone
       try {
-        console.log("🔍 Testing microphone access...");
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -596,8 +461,6 @@ const Dashboard = () => {
             autoGainControl: true,
           },
         });
-
-        console.log("✅ Microphone access granted");
 
         // Test audio levels
         const audioContext = new (window.AudioContext ||
@@ -623,52 +486,19 @@ const Dashboard = () => {
           if (Date.now() - startTime < testDuration) {
             requestAnimationFrame(checkAudio);
           } else {
-            console.log(
-              `🔊 Audio level test complete. Max volume detected: ${maxVolume.toFixed(
-                1
-              )}/255`
-            );
-            if (maxVolume < 10) {
-              console.warn(
-                "⚠️ Very low audio levels detected. Try speaking louder or checking microphone settings."
-              );
-            } else if (maxVolume > 50) {
-              console.log("✅ Good audio levels detected!");
-            } else {
-              console.log("📊 Moderate audio levels detected.");
-            }
-
             // Clean up
             audioContext.close();
             stream.getTracks().forEach((track) => track.stop());
           }
         };
 
-        console.log("🎤 Speak now to test your microphone levels...");
         checkAudio();
 
         return true;
       } catch (error) {
-        console.error("❌ Microphone access failed:", error);
-
-        if (error.name === "NotAllowedError") {
-          console.log(
-            "🔧 Fix: Click the microphone icon in your browser's address bar and allow microphone access"
-          );
-        } else if (error.name === "NotFoundError") {
-          console.log(
-            "🔧 Fix: Check that a microphone is connected to your computer"
-          );
-        } else if (error.name === "NotReadableError") {
-          console.log(
-            "🔧 Fix: Your microphone might be in use by another application"
-          );
-        }
-
         return false;
       }
     } catch (error) {
-      console.error("Error checking microphone status:", error);
       return false;
     }
   };
@@ -737,7 +567,7 @@ const Dashboard = () => {
         try {
           const canvas = canvasRef.current;
           const video = videoRef.current;
-          const ctx = canvas.getContext("2d");
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
           // Set canvas size to match video (now supporting higher resolution)
           canvas.width = video.videoWidth || 1280;
@@ -772,36 +602,24 @@ const Dashboard = () => {
         )
       ) {
         if (!videoRef.current) {
-          console.log(`No video available for ${behaviorType}`);
           return null;
         }
 
         // Capture current video frame as base64
         const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
         canvas.width = videoRef.current.videoWidth || 1280;
         canvas.height = videoRef.current.videoHeight || 720;
 
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const frameData = canvas.toDataURL("image/jpeg", 0.9);
 
-        // For sequence-based models, capture multiple frames with higher quality
-        console.log(
-          `📸 Capturing HIGH-RESOLUTION frame sequence for ${behaviorType}...`
-        );
-
         // Use the improved frame capture with better temporal resolution
         const frameSequence = await captureFrameSequence(12); // 12 frames for better accuracy
 
         if (!frameSequence || frameSequence.length === 0) {
-          console.error(`❌ No frames captured for ${behaviorType}`);
           return null;
         }
-
-        console.log(
-          `✅ Captured ${frameSequence.length} frames for ACCURATE ${behaviorType} analysis`
-        );
-
         // Call real Python ML API
         const response = await fetch(`${backendUrl}/api/ml/analyze`, {
           method: "POST",
@@ -821,7 +639,6 @@ const Dashboard = () => {
         }
 
         const result = await response.json();
-        console.log(`✅ Python ML detected ${behaviorType}:`, result);
 
         // Convert server response to expected format based on behavior type
         let detected = false;
@@ -853,169 +670,47 @@ const Dashboard = () => {
           timestamp: result.timestamp || new Date().toISOString(),
         };
 
-        // Add visual feedback for successful detection
-        if (analysis.detected) {
-          console.log(
-            `🎯 SENSITIVE DETECTION: ${behaviorType} (confidence: ${analysis.confidence})`
-          );
-          if (analysis.tap_count > 0) {
-            console.log(`👏 Taps detected: ${analysis.tap_count}`);
-          }
-          if (analysis.clap_count > 0) {
-            console.log(`👋 Claps detected: ${analysis.clap_count}`);
-          }
-        }
-
         return analysis;
       } else if (behaviorType === "rapid_talking") {
         // Audio-based behavior analysis - only when actually speaking
         const audioData = getAudioFeatures();
         if (!audioData) {
-          console.log("Skipping rapid_talking: no audio input");
           return null;
         }
 
-        // SIMPLIFIED: Skip audio-based speech detection for now - rely on WPM data
-        console.log(
-          `🔊 Audio levels - Volume: ${audioData.volume.toFixed(
-            3
-          )}, Spectral: ${audioData.spectralActivity.toFixed(3)}, Speaking: ${
-            audioData.isSpeaking
-          }`
-        );
+        // Always compute audio activity fallback
+        const activityScore =
+          (audioData.volume + audioData.spectralActivity) / 2;
 
-        // BYPASS SPEECH DETECTION - always proceed with analysis if we have any audio
-        console.log(
-          `🎯 PROCEEDING WITH RAPID TALKING ANALYSIS - bypassing speech detection`
-        );
-
-        // If no WPM data and no audio activity, use test data for demonstration
-        if (wpmSeq.length === 0 && !audioData.isSpeaking) {
-          console.log(
-            "🧪 No speech data - will use fallback test data for demonstration"
-          );
+        // Slightly lower threshold so fallback triggers more reliably
+        if (activityScore > 0.07 && audioData.isSpeaking) {
+          const estimatedConfidence = Math.min(0.5, activityScore * 3);
+          return {
+            behavior_type: behaviorType,
+            confidence: estimatedConfidence,
+            detected: estimatedConfidence > 0.25,
+            timestamp: new Date().toISOString(),
+            fallback: true,
+            audioActivity: activityScore,
+          };
         }
 
-        console.log(
-          `🗣️ Speech detected! (volume: ${audioData.volume.toFixed(
-            3
-          )}, spectral: ${audioData.spectralActivity.toFixed(3)})`
-        );
-
-        // DEBUG: Check current WPM data status
-        console.log(
-          `📊 Current WPM data: [${wpmSeq
-            .map((w) => w.toFixed(1))
-            .join(", ")}] (${wpmSeq.length} samples)`
-        );
-
-        // RAPID TALKING DETECTION DEBUG - AFTER 1-MINUTE COLLECTION
-        console.log("🎯 1-MINUTE WPM ANALYSIS:");
-        if (wpmSeq.length >= 1) {
-          // Use WPM data from full 1-minute collections
-          const recentWpm = wpmSeq.slice(-3); // Last 3 one-minute measurements
-          const avgWpm =
-            recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
-          console.log(
-            `   📈 Average WPM: ${avgWpm.toFixed(1)} (from ${
-              recentWpm.length
-            } x 1-minute measurements)`
-          );
-          console.log(`   🎯 Rapid talking threshold: 180+ WPM`);
-
-          if (avgWpm >= 180) {
-            console.log(
-              `   🚨 RAPID TALKING DETECTED! (${avgWpm.toFixed(1)} >= 180 WPM)`
-            );
-          } else if (avgWpm >= 160) {
-            console.log(
-              `   ⚡ Fast talking detected (${avgWpm.toFixed(
-                1
-              )} WPM, need 180+ for rapid)`
-            );
-          } else {
-            console.log(
-              `   🎤 Normal speaking pace (${avgWpm.toFixed(
-                1
-              )} WPM, need 180+ for rapid)`
-            );
-          }
-        } else {
-          console.log(
-            `   ⚠️ Need ${
-              1 - wpmSeq.length
-            } more 1-minute WPM measurements for analysis`
-          );
-        }
-
-        // FALLBACK: If speech recognition isn't working but we detect audio activity
-        if (wpmSeq.length === 0 && audioData.volume > 0.05) {
-          console.log(
-            "⚠️ Speech detected but no WPM data from speech recognition"
-          );
-          console.log(
-            "🔄 Using audio activity as fallback for rapid talking detection"
-          );
-
-          // Use high audio activity as an indicator of rapid speech
-          const activityScore =
-            (audioData.volume + audioData.spectralActivity) / 2;
-          if (activityScore > 0.1) {
-            const estimatedConfidence = Math.min(0.6, activityScore * 4); // Max 60% confidence
-            console.log(
-              `🎯 Audio-based rapid talking detection: ${(
-                estimatedConfidence * 100
-              ).toFixed(1)}% confidence`
-            );
-
-            return {
-              behavior_type: behaviorType,
-              confidence: estimatedConfidence,
-              detected: estimatedConfidence > 0.3,
-              timestamp: new Date().toISOString(),
-              message:
-                "Audio-based rapid talking detection (speech recognition unavailable)",
-              fallback: true,
-              audioActivity: activityScore,
-            };
-          }
-        }
-
-        // REAL DETECTION: Only use 1-minute WPM measurements
-        let wpmData;
+        let wpmData = null;
 
         if (wpmSeq.length >= 1) {
-          // Use recent WPM data from 1-minute collections
-          const recentWpm = wpmSeq.slice(-3); // Keep last 3 one-minute measurements
+          // Use WPM data from 20-second collections
+          const recentWpm = wpmSeq.slice(-3);
           const avgWpm =
             recentWpm.reduce((a, b) => a + b, 0) / recentWpm.length;
           wpmData = recentWpm;
 
-          console.log(
-            `📊 Using 1-minute WPM data: [${wpmData
-              .map((w) => w.toFixed(1))
-              .join(", ")}] (avg: ${avgWpm.toFixed(1)} WPM from ${
-              wpmData.length
-            } x 1-minute measurements)`
-          );
-
           // Only proceed if speech exceeds 180 WPM threshold for rapid talking
           if (avgWpm < 180) {
             let status = "";
-            if (avgWpm >= 160) {
+            if (avgWpm >= 150) {
               status = `⚡ Fast: ${avgWpm.toFixed(1)} WPM`;
-              console.log(
-                `⚡ Fast speech (${avgWpm.toFixed(
-                  1
-                )} WPM) - below 180 WPM rapid threshold`
-              );
             } else {
               status = `🎤 Normal: ${avgWpm.toFixed(1)} WPM`;
-              console.log(
-                `🎤 Normal speech (${avgWpm.toFixed(
-                  1
-                )} WPM) - below 180 WPM rapid threshold`
-              );
             }
             setRapidTalkingStatus(status);
             return {
@@ -1028,23 +723,8 @@ const Dashboard = () => {
             };
           }
 
-          console.log(
-            `✅ Rapid talking detected: ${avgWpm.toFixed(
-              1
-            )} WPM (above 180 WPM threshold)`
-          );
           setRapidTalkingStatus(`🚨 RAPID TALKING: ${avgWpm.toFixed(1)} WPM`);
         } else {
-          console.log(
-            `❌ No 1-minute WPM data (${wpmSeq.length} measurements)`
-          );
-          console.log(`   Need at least 1 full 1-minute WPM measurement`);
-          console.log(
-            `   Current WPM data: [${wpmSeq
-              .map((w) => w.toFixed(1))
-              .join(", ")}]`
-          );
-
           // NO FAKE DATA - return no detection if no real speech
           setRapidTalkingStatus(
             `⏸️ No 1-min data (${wpmSeq.length} measurements)`
@@ -1058,26 +738,10 @@ const Dashboard = () => {
           };
         }
 
-        // Call real Python ML API for rapid talking
-        console.log(
-          `🔄 Calling Python ML API for rapid talking with data:`,
-          wpmData
-        );
-        console.log(`📊 WPM Data Details:`, {
-          length: wpmData.length,
-          values: wpmData,
-          average: (
-            wpmData.reduce((a, b) => a + b, 0) / wpmData.length
-          ).toFixed(1),
-          min: Math.min(...wpmData).toFixed(1),
-          max: Math.max(...wpmData).toFixed(1),
-        });
-
         const requestBody = {
           behaviorType: behaviorType,
           data: wpmData,
         };
-        console.log(`📤 Full request body:`, requestBody);
 
         const response = await fetch(`${backendUrl}/api/ml/analyze`, {
           method: "POST",
@@ -1088,10 +752,6 @@ const Dashboard = () => {
           body: JSON.stringify(requestBody),
         });
 
-        console.log(
-          `📡 API Response status: ${response.status} ${response.statusText}`
-        );
-
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`❌ API Error Response:`, errorText);
@@ -1099,28 +759,13 @@ const Dashboard = () => {
         }
 
         const result = await response.json();
-        console.log(`✅ Python ML API Response:`, result);
-        console.log(`🔍 Response analysis object:`, result.analysis);
 
         // Enhanced debugging for rapid talking results
         if (result.detected) {
-          console.log(
-            `🎯 RAPID TALKING DETECTED! Confidence: ${(
-              result.confidence * 100
-            ).toFixed(1)}%`
-          );
-          console.log(
-            `   Detection type: ${result.fallback ? "Fallback" : "PyTorch ML"}`
-          );
           setRapidTalkingStatus(
             `🎯 DETECTED! ${(result.confidence * 100).toFixed(1)}% confidence`
           );
         } else {
-          console.log(
-            `❌ No rapid talking detected. Confidence: ${(
-              result.confidence * 100
-            ).toFixed(1)}%`
-          );
           setRapidTalkingStatus(
             `❌ Not detected (${(result.confidence * 100).toFixed(
               1
@@ -1128,24 +773,11 @@ const Dashboard = () => {
           );
         }
 
-        // Add visual feedback for successful detection
-        if (result.detected) {
-          const detectionType = result.fallback ? "FALLBACK" : "PYTORCH ML";
-          console.log(
-            `🎯 ${detectionType} RAPID TALKING DETECTED! (confidence: ${result.confidence})`
-          );
-          if (!result.fallback) {
-            console.log(`✨ Real PyTorch WPM model successful!`);
-          }
-        }
-
         return result.analysis || result;
       }
 
       return null;
     } catch (error) {
-      console.log(`Real Python ML analysis error for ${behaviorType}:`, error);
-
       // Fallback to basic detection if API fails
       const confidence = Math.random() * 0.3 + 0.1;
       return {
@@ -1175,19 +807,13 @@ const Dashboard = () => {
         "sit_stand", // Added back - continuous monitoring with transition-only logic
       ];
 
-      console.log("Running real Python ML analysis for all behaviors...");
-
-      // NO DEMO MODE - only use real speech recognition data
-      // Removed fake WPM data injection to ensure authentic detection
-
       let results = [];
 
       // Analyze each behavior individually using real Python ML
       const analysisPromises = behaviorTypes.map(async (behaviorType) => {
         try {
-          console.log(`🔍 Starting analysis for behavior: ${behaviorType}`);
           const result = await analyzeBehavior(behaviorType);
-          console.log(`✅ Completed analysis for ${behaviorType}:`, result);
+
           return result;
         } catch (error) {
           console.error(`❌ Error analyzing ${behaviorType}:`, error);
@@ -1208,8 +834,6 @@ const Dashboard = () => {
       // Reset current behavior snapshot for this cycle
       const newBehaviors = {};
 
-      console.log("🔍 BEHAVIOR ANALYSIS RESULTS:");
-      console.log("====================================");
       behaviorTypes.forEach((bt) => {
         newBehaviors[bt] = { detected: false, confidence: 0 };
       });
@@ -1220,15 +844,7 @@ const Dashboard = () => {
       results.forEach((result, idx) => {
         const behaviorType = result?.behavior_type || behaviorTypes[idx];
 
-        console.log(
-          `📋 Processing result ${idx + 1}/${results.length}: ${behaviorType}`
-        );
-        console.log(`   Raw result:`, result);
-
         if (!result) {
-          console.log(
-            `   ❌ No result for ${behaviorType} - keeping default false`
-          );
           return; // keep default false
         }
 
@@ -1237,66 +853,10 @@ const Dashboard = () => {
           detected: Boolean(result.detected),
           confidence: parseFloat(result.confidence || result.probability || 0),
         };
-
-        console.log(
-          `   ✅ Updated ${behaviorType}: detected=${Boolean(
-            result.detected
-          )}, confidence=${parseFloat(
-            result.confidence || result.probability || 0
-          )}`
-        );
-
-        // SPECIAL DEBUGGING for rapid_talking
-        if (behaviorType === "rapid_talking") {
-          console.log(`🎯 RAPID TALKING PROCESSING DETAIL:`);
-          console.log(
-            `   detected: ${result.detected} (type: ${typeof result.detected})`
-          );
-          console.log(
-            `   confidence: ${
-              result.confidence
-            } (type: ${typeof result.confidence})`
-          );
-          console.log(`   Boolean(detected): ${Boolean(result.detected)}`);
-          console.log(
-            `   parseFloat(confidence): ${parseFloat(
-              result.confidence || result.probability || 0
-            )}`
-          );
-
-          if (result.detected) {
-            console.log(`🚨 RAPID TALKING SHOULD BE DETECTED IN UI!`);
-          } else {
-            console.log(`❌ Rapid talking not detected - will show as 0 in UI`);
-          }
-        }
-
         // SPECIAL DEBUGGING for hand_tapping pattern analysis
         if (behaviorType === "tapping_hands") {
-          console.log(`👋 HAND TAPPING PATTERN ANALYSIS:`);
-          console.log(
-            `   detected: ${result.detected} (type: ${typeof result.detected})`
-          );
-          console.log(
-            `   confidence: ${
-              result.confidence
-            } (type: ${typeof result.confidence})`
-          );
-
           if (result.analysis_type === "pattern_recognition") {
-            console.log(`   🎯 PATTERN ANALYSIS RESULTS:`);
-            console.log(`      Pattern detected: ${result.pattern || "none"}`);
-            console.log(`      Tapping score: ${result.tapping_score || 0}`);
-            console.log(`      Clapping score: ${result.clapping_score || 0}`);
-            console.log(`      Analysis type: ${result.analysis_type}`);
-            console.log(`      Tap count: ${result.tap_count || 0}`);
-            console.log(`      Clap count: ${result.clap_count || 0}`);
-
             if (result.detected) {
-              console.log(
-                `✅ REAL ${result.pattern.toUpperCase()} MOTION DETECTED!`
-              );
-
               // TAP COUNTING LOGIC - Accumulate taps over 5 seconds
               const currentTime = Date.now();
               const tapCount = result.tap_count || 0;
@@ -1308,9 +868,6 @@ const Dashboard = () => {
 
                   // Start new counting session if not active
                   if (!prev.isActive || currentTime - prev.startTime > 6000) {
-                    console.log(
-                      `🔄 Starting new 5-second tap counting session`
-                    );
                     newCounter = {
                       taps: tapCount,
                       claps: clapCount,
@@ -1333,14 +890,6 @@ const Dashboard = () => {
                         lastDisplayTime: Date.now(),
                       }));
 
-                      console.log(`🎯 TAP COUNT RESULTS AFTER 5 SECONDS:`);
-                      console.log(
-                        `   Total Taps: ${newCounter.taps + tapCount}`
-                      );
-                      console.log(
-                        `   Total Claps: ${newCounter.claps + clapCount}`
-                      );
-
                       // Auto-hide results after 3 seconds
                       setTimeout(() => {
                         setTapCounter((counter) => ({
@@ -1354,23 +903,12 @@ const Dashboard = () => {
                     // Add to existing session
                     newCounter.taps += tapCount;
                     newCounter.claps += clapCount;
-                    console.log(
-                      `➕ Added ${tapCount} taps, ${clapCount} claps. Total: ${newCounter.taps} taps, ${newCounter.claps} claps`
-                    );
                   }
 
                   return newCounter;
                 });
               }
-            } else {
-              console.log(
-                `❌ No actual tapping/clapping motion detected (just showing hands)`
-              );
             }
-          } else {
-            console.log(
-              `   ⚠️ Using legacy PyTorch detection (not pattern analysis)`
-            );
           }
         }
 
@@ -1382,10 +920,6 @@ const Dashboard = () => {
           incrementMap[behaviorType].inc += 1;
           incrementMap[behaviorType].conf +=
             result.confidence || result.probability || 0;
-
-          console.log(
-            `Detection recorded for ${behaviorType}. Total count: ${incrementMap[behaviorType].inc}`
-          );
         }
 
         // Create alert if confidence is high enough
@@ -1399,15 +933,6 @@ const Dashboard = () => {
           };
           newAlerts.unshift(alert);
 
-          // Console notification for high confidence detections
-          if (confidence > 0.6) {
-            console.log(
-              `🚨 HIGH CONFIDENCE DETECTION: ${behaviorType} (${(
-                confidence * 100
-              ).toFixed(1)}%)`
-            );
-          }
-
           // Keep only last 10 alerts
           if (newAlerts.length > 10) {
             newAlerts.pop();
@@ -1415,19 +940,9 @@ const Dashboard = () => {
         }
       });
 
-      console.log("🔄 About to update currentBehaviors with:", newBehaviors);
-      console.log(
-        "🎯 Rapid talking in newBehaviors:",
-        newBehaviors.rapid_talking
-      );
-
       setCurrentBehaviors(newBehaviors);
       setAlerts(newAlerts);
 
-      console.log(
-        "✅ currentBehaviors updated, rapid talking should now be:",
-        newBehaviors.rapid_talking
-      );
       // Apply increments using functional state update to get latest counts
       setBehaviorData((prev) => {
         const updated = { ...prev };
@@ -1444,13 +959,8 @@ const Dashboard = () => {
         return updated;
       });
 
-      // Debug logging
-      console.log("Updated behaviorData:", behaviorData);
-
       // No baseline skipping now
-    } finally {
-      // Keep isAnalyzing true during entire monitoring session - don't reset to false
-    }
+    } catch (error) {}
   };
 
   // Initialize dashboard
@@ -1477,37 +987,6 @@ const Dashboard = () => {
       }
     };
   }, []);
-
-  // Verify video element is available
-  useEffect(() => {
-    if (videoRef.current) {
-      /* video element verified */
-    }
-  }, [monitoring]); // Check when monitoring state changes
-
-  // Ensure video element is properly initialized on mount
-  useEffect(() => {
-    const checkVideoElement = () => {
-      if (videoRef.current) {
-        /* video element ready */
-      }
-    };
-
-    // Check immediately
-    checkVideoElement();
-
-    // Check again after a short delay to ensure DOM is ready
-    const timer = setTimeout(checkVideoElement, 100);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Monitor monitoring state changes
-  useEffect(() => {
-    if (monitoring && videoRef.current && stream) {
-      /* monitoring state changed */
-    }
-  }, [monitoring, stream]);
 
   // Attach stream to video element and play when stream changes
   useEffect(() => {
@@ -1572,7 +1051,6 @@ const Dashboard = () => {
     }
 
     try {
-      console.log(`🔍 Loading session history for user ${userData.id}...`);
       const response = await fetch(
         `${backendUrl}/api/session/user/${userData.id}`,
         {
@@ -1583,19 +1061,9 @@ const Dashboard = () => {
         }
       );
 
-      console.log(
-        `📡 Session history response:`,
-        response.status,
-        response.statusText
-      );
-
       if (response.ok) {
         const data = await response.json();
-        console.log(
-          `✅ Session history loaded:`,
-          data.sessions?.length || 0,
-          "sessions"
-        );
+
         setSessionHistory(data.sessions || []);
       } else {
         const errorData = await response
@@ -1623,12 +1091,6 @@ const Dashboard = () => {
       setSelectedSessionAnalytics(null);
       setShowSessionAnalyticsModal(true); // Show modal immediately with loading state
 
-      console.log(`🔍 Loading analytics for session ${sessionId}...`);
-      console.log(
-        `🔗 Analytics URL: ${backendUrl}/api/session/${sessionId}/analytics`
-      );
-      console.log(`🍪 Document cookies: ${document.cookie}`);
-
       const response = await fetch(
         `${backendUrl}/api/session/${sessionId}/analytics`,
         {
@@ -1640,11 +1102,8 @@ const Dashboard = () => {
         }
       );
 
-      console.log(`📡 Analytics response status: ${response.status}`);
-
       if (response.ok) {
         const data = await response.json();
-        console.log(`✅ Session analytics loaded:`, data);
 
         // Add a small delay for smooth transition
         setTimeout(() => {
@@ -1772,7 +1231,7 @@ const Dashboard = () => {
         let lastSitStandTime = 0;
         const analysisThrottle = 200; // Process every 200ms for responsive real-time feel
         const motionCheckThrottle = 500; // Check for motion every 500ms
-        const sitStandCooldown = 1500; // Minimum 1.5s between sit-stand analyses to avoid spam
+        const sitStandCooldown = 8000; // Minimum 8 s between sit-stand analyses to prevent frequent state polling
 
         const analyzeFrame = () => {
           const now = Date.now();
@@ -1784,9 +1243,6 @@ const Dashboard = () => {
             !videoRef.current.paused &&
             !videoRef.current.ended
           ) {
-            console.log(
-              "🔍 Running FREQUENT Python ML analysis... (every 200ms, no sit-stand)"
-            );
             runFrequentBehaviorAnalysis();
             lastAnalysisTime = now;
           }
@@ -1803,9 +1259,6 @@ const Dashboard = () => {
             lastMotionCheckTime = now;
 
             if (motionDetected) {
-              console.log(
-                "🪑 Motion detected! Running SIT-STAND analysis... (motion-triggered for maximum efficiency)"
-              );
               runSitStandAnalysis();
               lastSitStandTime = now;
             }
@@ -1826,33 +1279,19 @@ const Dashboard = () => {
 
       // Auto-start speech recognition for monitoring session
       if (!shouldKeepSpeechActive) {
-        console.log(
-          "🎤 Auto-starting 1-minute speech collection for monitoring session..."
-        );
-        console.log(
-          "Current shouldKeepSpeechActive state:",
-          shouldKeepSpeechActive
-        );
         setTimeout(() => {
-          console.log("🎤 Executing auto-start speech recognition...");
           startSpeechRecognitionManually();
         }, 1500); // Longer delay to ensure monitoring is fully started
-      } else {
-        console.log("🎤 Speech session already active, skipping auto-start");
       }
 
       // Initial analysis after 1 second (faster initial response)
       setTimeout(() => {
-        console.log("🎬 Running initial Python ML analysis...");
         runFrequentBehaviorAnalysis(); // Start with frequent behaviors
         setTimeout(() => {
           runSitStandAnalysis(); // Add sit-stand shortly after
         }, 500);
       }, 1000);
 
-      console.log(
-        "🚀 REAL-TIME ADHD behavior detection ACTIVE - Frequent behaviors: 5x/sec, Sit-stand: motion-triggered"
-      );
       toast.success("Camera Connected");
     } catch (_e) {
       /* ignored start monitoring error */
@@ -1867,8 +1306,6 @@ const Dashboard = () => {
 
   // Stop monitoring
   const stopMonitoring = async () => {
-    console.log("🛑 Stopping monitoring...");
-
     try {
       setMonitoring(false);
       setIsAnalyzing(false); // Stop analyzing state when monitoring stops
@@ -1922,23 +1359,11 @@ const Dashboard = () => {
 
       // Stop speech recognition when monitoring stops
       if (speechRecognitionActive || shouldKeepSpeechActive) {
-        console.log("🛑 Stopping speech recognition with monitoring...");
         stopSpeechRecognition();
       }
 
-      console.log("✅ Successfully stopped all monitoring components");
-
       // Update session if active
       if (sessionId) {
-        console.log("💾 Saving session data:", {
-          behaviorData,
-          behaviorDataKeys: Object.keys(behaviorData),
-          behaviorDataValues: Object.values(behaviorData),
-          alerts,
-          alertsLength: alerts.length,
-          duration: formatDuration(timer),
-        });
-
         // Also log the raw JSON that will be sent
         const sessionPayload = {
           endTime: new Date().toISOString(),
@@ -1947,10 +1372,6 @@ const Dashboard = () => {
           behaviorData: behaviorData,
           alerts: alerts,
         };
-        console.log(
-          "📤 Session payload being sent:",
-          JSON.stringify(sessionPayload, null, 2)
-        );
 
         await fetch(`${backendUrl}/api/session/${sessionId}/end`, {
           method: "PUT",
@@ -1989,87 +1410,6 @@ const Dashboard = () => {
     return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  // Test camera access
-  const testCamera = async () => {
-    setError("");
-
-    try {
-      // Check if getUserMedia is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("getUserMedia is not supported in this browser");
-      }
-
-      // Try to get camera access
-      const testStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1920, min: 640 }, // Wide resolution, fallback to lower if needed
-          height: { ideal: 1080, min: 480 }, // Wide height, fallback to lower if needed
-          frameRate: { ideal: 30, min: 15 },
-          facingMode: "user", // Front-facing camera
-        },
-        audio: false,
-      });
-
-      // Check if we got video tracks
-      const videoTracks = testStream.getVideoTracks();
-      if (videoTracks.length === 0) {
-        throw new Error("No video tracks available");
-      }
-
-      // Get camera info
-      const videoTrack = videoTracks[0];
-      const settings = videoTrack.getSettings();
-
-      // Test video display by temporarily setting the stream
-      if (videoRef.current) {
-        const originalStream = videoRef.current.srcObject;
-        videoRef.current.srcObject = testStream;
-        videoRef.current.muted = true;
-        videoRef.current.playsInline = true;
-
-        try {
-          await videoRef.current.play();
-
-          // Show video for 3 seconds
-          setTimeout(() => {
-            if (videoRef.current) {
-              videoRef.current.pause();
-              videoRef.current.srcObject = originalStream;
-              if (originalStream) {
-                videoRef.current.play().catch(() => {
-                  /* ignored autoplay failure */
-                });
-              }
-            }
-          }, 3000);
-        } catch (_e) {
-          /* ignored error in monitor stream health */
-        }
-      }
-
-      // Stop the test stream after a delay
-      setTimeout(() => {
-        testStream.getTracks().forEach((track) => track.stop());
-      }, 3500);
-
-      toast.success(
-        `Camera test successful! Camera: ${videoTrack.label || "Unknown"}`
-      );
-
-      // Show camera info
-      setError(`Camera test successful! 
-        Camera: ${videoTrack.label || "Unknown"}
-        Resolution: ${settings.width}x${settings.height}
-        Frame rate: ${settings.frameRate || "Unknown"} fps
-        Video display: ${videoRef.current ? "Tested" : "Not available"}`);
-    } catch (_e) {
-      /* ignored test camera error */
-      let errorMessage = "Camera test failed.";
-      setError(errorMessage);
-      toast.error("Camera test failed: " + errorMessage);
-    }
   };
 
   // Get behavior status color
@@ -2219,9 +1559,6 @@ const Dashboard = () => {
 
     // Start speech recognition automatically when analyze now is clicked
     if (!shouldKeepSpeechActive) {
-      console.log(
-        "🎤 Auto-starting 1-minute speech collection with Analyze Now..."
-      );
       startSpeechRecognitionManually();
     }
 
@@ -2277,18 +1614,10 @@ const Dashboard = () => {
         // Excluding sit_stand for efficiency
       ];
 
-      console.log("Running frequent Python ML analysis (no sit-stand)...");
-
       const analysisPromises = behaviorTypes.map(async (behaviorType) => {
         try {
-          console.log(
-            `🔍 Starting frequent analysis for behavior: ${behaviorType}`
-          );
           const result = await analyzeBehavior(behaviorType);
-          console.log(
-            `✅ Completed frequent analysis for ${behaviorType}:`,
-            result
-          );
+
           return result;
         } catch (error) {
           console.error(`❌ Error analyzing ${behaviorType}:`, error);
@@ -2418,10 +1747,13 @@ const Dashboard = () => {
     if (!monitoring) return;
 
     try {
-      console.log("🪑 Running sit-stand analysis (infrequent check)...");
       const result = await analyzeBehavior("sit_stand");
 
-      if (result && result.detected) {
+      if (
+        result &&
+        result.detected &&
+        result.analysis_type === "action_detected"
+      ) {
         // Update sit-stand behavior state
         setCurrentBehaviors((prev) => ({
           ...prev,
@@ -2458,12 +1790,6 @@ const Dashboard = () => {
               `Action: ${result.action || "transition"}`,
           },
         ]);
-
-        console.log(
-          `🎯 SIT-STAND ACTION COUNTED: ${result.action || "transition"} - ${
-            result.action_description || "posture change"
-          } (confidence: ${result.confidence})`
-        );
       } else {
         // Update to show no action detected (maintaining same posture)
         setCurrentBehaviors((prev) => ({
@@ -2473,47 +1799,6 @@ const Dashboard = () => {
             confidence: parseFloat(result?.confidence || 0),
           },
         }));
-
-        // Log what's happening (maintaining posture vs insufficient baseline vs cooldown vs confidence)
-        if (result?.analysis_type === "maintaining_same_posture") {
-          console.log(
-            `📍 MAINTAINING POSTURE: ${result.current_posture} (stable x${result.baseline_count}) - no action to count`
-          );
-        } else if (result?.analysis_type === "baseline_establishment") {
-          console.log(
-            `🏁 ESTABLISHING BASELINE: ${result.current_posture} posture detected (baseline=${result.baseline_count})`
-          );
-        } else if (
-          result?.analysis_type === "posture_change_insufficient_baseline"
-        ) {
-          console.log(
-            `⚠️ POSTURE CHANGE: ${result.previous_posture} → ${result.current_posture} but baseline insufficient (${result.baseline_count}/${result.required_baseline})`
-          );
-        } else if (result?.analysis_type === "cooldown_active") {
-          console.log(
-            `🛑 COOLDOWN BLOCKING: ${result.previous_posture} → ${
-              result.current_posture
-            } transition blocked (${result.time_remaining?.toFixed(
-              1
-            )}s remaining)`
-          );
-        } else if (
-          result?.analysis_type === "confidence_too_low_for_transition"
-        ) {
-          console.log(
-            `🚫 CONFIDENCE TOO LOW: ${result.previous_posture} → ${
-              result.current_posture
-            } blocked (${result.confidence?.toFixed(3)} < ${
-              result.required_confidence
-            })`
-          );
-        } else {
-          console.log(
-            `ℹ️ No sit-stand action detected: ${
-              result?.message || "unknown reason"
-            }`
-          );
-        }
       }
     } catch (error) {
       console.error("❌ Sit-stand analysis error:", error);
@@ -2587,447 +1872,37 @@ const Dashboard = () => {
                   className="space-y-3 md:space-y-4"
                 >
                   {/* Monitoring Controls */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Video className="h-5 w-5" />
-                        Behavior Monitoring
-                      </CardTitle>
-                      <CardDescription>
-                        Monitor behaviors using computer vision and ML analysis.
-                        Monitoring will continue until manually stopped.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex flex-wrap gap-4">
-                        {!monitoring ? (
-                          <>
-                            <Button
-                              onClick={startMonitoring}
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                              size="lg"
-                            >
-                              <Play className="h-4 w-4" />
-                              Start Monitoring
-                            </Button>
-                            <Button
-                              onClick={testCamera}
-                              variant="outline"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                            >
-                              <Video className="h-4 w-4" />
-                              Test Camera
-                            </Button>
-                            <Button
-                              onClick={() =>
-                                window.open("/camera-test.html", "_blank")
-                              }
-                              variant="outline"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                            >
-                              <Settings className="h-4 w-4" />
-                              Advanced Test
-                            </Button>
-                            <Button
-                              onClick={testSpeechRecognitionSetup}
-                              variant="outline"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                            >
-                              <span className="h-4 w-4">🎤</span>
-                              Test Speech Setup
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              onClick={stopMonitoring}
-                              variant="destructive"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                              size="lg"
-                            >
-                              <Square className="h-4 w-4" />
-                              Stop Monitoring
-                            </Button>
-                            <Button
-                              onClick={handleAnalyzeNow}
-                              variant="outline"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                              disabled={!!manualAnalysisIntervalId}
-                            >
-                              <Brain className="h-4 w-4" />
-                              Analyze Now (+ Speech)
-                            </Button>
-                            <Button
-                              onClick={() => {
-                                const status = checkCameraStatus();
-                                if (status) {
-                                  toast.success("Camera is working properly");
-                                } else {
-                                  toast.error(
-                                    "Camera issue detected - check console"
-                                  );
-                                }
-                              }}
-                              variant="outline"
-                              className="flex items-center gap-2 w-full sm:w-auto"
-                            >
-                              <Eye className="h-4 w-4" />
-                              Check Status
-                            </Button>
-                          </>
-                        )}
-                      </div>
-
-                      {error && (
-                        <Alert variant="destructive">
-                          <XCircle className="h-4 w-4" />
-                          <AlertDescription>
-                            {error}
-                            <div className="mt-2 text-sm">
-                              <strong>Troubleshooting Steps:</strong>
-                              <ol className="list-decimal list-inside mt-1 space-y-1">
-                                <li>
-                                  <strong>Check Browser Permissions:</strong>{" "}
-                                  Click the camera icon in your browser's
-                                  address bar and ensure camera access is
-                                  allowed
-                                </li>
-                                <li>
-                                  <strong>Close Other Apps:</strong> Make sure
-                                  no other applications (Zoom, Teams, etc.) are
-                                  using your camera
-                                </li>
-                                <li>
-                                  <strong>Try Different Browser:</strong> Use
-                                  Chrome, Firefox, or Edge for best
-                                  compatibility
-                                </li>
-                                <li>
-                                  <strong>Check HTTPS:</strong> Ensure you're
-                                  using HTTPS (required for camera access)
-                                </li>
-                                <li>
-                                  <strong>Test Camera:</strong> Click "Test
-                                  Camera" button to verify camera access
-                                </li>
-                                <li>
-                                  <strong>Advanced Test:</strong> Use "Advanced
-                                  Test" for detailed camera diagnostics
-                                </li>
-                                <li>
-                                  <strong>Refresh Page:</strong> Try refreshing
-                                  the page or restarting your browser
-                                </li>
-                              </ol>
-                              <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
-                                <strong>Debug Info:</strong> Browser:{" "}
-                                {navigator.userAgent
-                                  .split(" ")
-                                  .find((ua) => ua.includes("/")) || "Unknown"}
-                                , Protocol: {window.location.protocol}, Host:{" "}
-                                {window.location.hostname}
-                              </div>
-                            </div>
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <MonitoringControls
+                    monitoring={monitoring}
+                    startMonitoring={startMonitoring}
+                    stopMonitoring={stopMonitoring}
+                    handleAnalyzeNow={handleAnalyzeNow}
+                    manualAnalysisIntervalId={manualAnalysisIntervalId}
+                    checkCameraStatus={checkCameraStatus}
+                    error={error}
+                  />
 
                   {/* Video Feed and Analysis */}
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 md:gap-4">
                     {/* Video Feed */}
-                    <Card>
-                      <CardHeader className="pb-2 md:pb-3">
-                        <CardTitle className="flex items-center gap-2 text-sm md:text-base">
-                          <Eye className="h-4 w-4" />
-                          Live Video Feed
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="bg-black rounded-lg aspect-[4/3] flex items-center justify-center relative overflow-hidden group">
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className={`rounded-lg w-full h-full object-cover transition-all duration-500 ease-out ${
-                              stream
-                                ? "opacity-100 scale-100"
-                                : "opacity-0 scale-95"
-                            }`}
-                            style={{
-                              backgroundColor: "black",
-                              minHeight: "180px",
-                              display: stream ? "block" : "none",
-                            }}
-                            onError={(e) => {
-                              setError(
-                                "Video element failed to load. Please check camera permissions."
-                              );
-                            }}
-                            onLoadedMetadata={() => {
-                              if (videoRef.current) {
-                              }
-                            }}
-                            onCanPlay={() => {
-                              if (videoRef.current) {
-                                videoRef.current.play().catch(() => {
-                                  /* ignored autoplay failure */
-                                });
-                              }
-                            }}
-                            onPlaying={() => {
-                              setVideoPlaying(true);
-                            }}
-                            onPause={() => {
-                              setVideoPlaying(false);
-                            }}
-                            onStalled={() => {
-                              setVideoPlaying(false);
-                            }}
-                            onWaiting={() => {
-                              setVideoPlaying(false);
-                            }}
-                          />
-                          <canvas ref={canvasRef} className="hidden" />
-
-                          {/* Video Status Overlay */}
-                          {stream && videoPlaying && (
-                            <div className="absolute top-3 right-3 z-10">
-                              <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 text-white text-xs animate-in fade-in-0 slide-in-from-top-2 duration-300">
-                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                LIVE
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Camera Placeholder Overlay */}
-                          {!stream && (
-                            <div className="absolute inset-0 flex items-center justify-center text-center text-muted-foreground p-4 animate-in fade-in-0 zoom-in-95 duration-500">
-                              <div className="space-y-3">
-                                <div className="mx-auto w-16 h-16 bg-muted/20 rounded-full flex items-center justify-center animate-pulse">
-                                  <VideoOff className="h-8 w-8 md:h-10 md:w-10" />
-                                </div>
-                                <div>
-                                  <p className="text-sm md:text-base font-medium">
-                                    Camera feed will appear here
-                                  </p>
-                                  <p className="text-xs text-muted-foreground/80 mt-1">
-                                    Start monitoring to begin
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Loading Overlay */}
-                          {stream && !videoPlaying && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-300">
-                              <div className="text-center text-white">
-                                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                                <p className="text-xs">
-                                  Initializing camera...
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <VideoFeed
+                      videoRef={videoRef}
+                      canvasRef={canvasRef}
+                      stream={stream}
+                      videoPlaying={videoPlaying}
+                      setError={setError}
+                      setVideoPlaying={setVideoPlaying}
+                    />
 
                     {/* Behavior Analysis */}
-                    <Card>
-                      <CardHeader className="pb-2 md:pb-3">
-                        <CardTitle className="flex items-center gap-2 text-sm md:text-base">
-                          <Activity className="h-4 w-4" />
-                          Behavior Analysis
-                          {isAnalyzing && (
-                            <Badge variant="secondary" className="ml-2">
-                              <Brain className="h-3 w-3 mr-1 animate-pulse" />
-                              <span className="hidden sm:inline">
-                                Analyzing...
-                              </span>
-                              <span className="sm:hidden">...</span>
-                            </Badge>
-                          )}
-                          {monitoring && !isAnalyzing && (
-                            <Badge variant="default" className="ml-2">
-                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></div>
-                              Active
-                            </Badge>
-                          )}
-                          {!monitoring && (
-                            <Badge variant="outline" className="ml-2">
-                              <VideoOff className="h-3 w-3 mr-1" />
-                              Inactive
-                            </Badge>
-                          )}
-                        </CardTitle>
-                        <CardDescription className="text-xs md:text-sm">
-                          Real-time behavior analysis using machine learning
-                          models. Analysis runs continuously (5x per second)
-                          while monitoring is active.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {/* Physical Behaviors */}
-                        <div className="space-y-2">
-                          <h3 className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
-                            Physical Behaviors
-                          </h3>
-                          <div className="grid gap-2">
-                            {[
-                              "eye_gaze",
-                              "tapping_hands",
-                              "tapping_feet",
-                              "sit_stand",
-                            ].map((behavior) => {
-                              const data = currentBehaviors[behavior];
-                              if (!data) return null;
-
-                              const getBehaviorIcon = () => {
-                                switch (behavior) {
-                                  case "eye_gaze":
-                                    return "👀";
-                                  case "tapping_hands":
-                                    return "✋";
-                                  case "tapping_feet":
-                                    return "🦶";
-                                  case "sit_stand":
-                                    return "🪑";
-                                  default:
-                                    return "📊";
-                                }
-                              };
-
-                              return (
-                                <div
-                                  key={behavior}
-                                  className={`flex items-center justify-between p-2 md:p-3 rounded border transition-all duration-200 ${
-                                    data.detected
-                                      ? "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20"
-                                      : "border-gray-200 bg-gray-50/50 dark:border-gray-700 dark:bg-gray-800/30"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <div
-                                      className={`text-base md:text-lg transition-transform duration-300 ${
-                                        data.detected
-                                          ? "animate-bounce scale-110"
-                                          : "group-hover:scale-110"
-                                      }`}
-                                    >
-                                      {getBehaviorIcon()}
-                                    </div>
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <Badge
-                                          variant={getBehaviorStatusColor(
-                                            behavior
-                                          )}
-                                          className={`text-xs transition-all duration-300 ${
-                                            data.detected
-                                              ? "animate-pulse shadow-sm"
-                                              : ""
-                                          }`}
-                                        >
-                                          {data.detected
-                                            ? "Detected"
-                                            : "Normal"}
-                                        </Badge>
-                                        <span className="text-xs md:text-sm font-medium capitalize">
-                                          {formatBehaviorLabel(behavior)}
-                                        </span>
-                                      </div>
-                                      {data.detected && (
-                                        <div className="text-xs text-muted-foreground animate-in fade-in-0 slide-in-from-left-2 duration-300">
-                                          🕐 {new Date().toLocaleTimeString()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <div
-                                      className={`text-sm md:text-lg font-bold transition-all duration-300 ${
-                                        data.detected
-                                          ? "text-red-600 dark:text-red-400 animate-pulse scale-110"
-                                          : "text-primary group-hover:scale-105"
-                                      }`}
-                                    >
-                                      {behaviorData[behavior]?.count || 0}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      detections
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Speech Behaviors */}
-                        <div className="space-y-2">
-                          <h3 className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
-                            Speech Behaviors
-                          </h3>
-                          <div className="grid gap-2">
-                            {["rapid_talking"].map((behavior) => {
-                              const data = currentBehaviors[behavior];
-                              if (!data) return null;
-
-                              return (
-                                <div
-                                  key={behavior}
-                                  className={`flex items-center justify-between p-2 md:p-3 rounded border transition-all duration-200 ${
-                                    data.detected
-                                      ? "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20"
-                                      : "border-gray-200 bg-gray-50/50 dark:border-gray-700 dark:bg-gray-800/30"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className="text-base md:text-lg">
-                                      🗣️
-                                    </div>
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <Badge
-                                          variant={getBehaviorStatusColor(
-                                            behavior
-                                          )}
-                                          className="text-xs"
-                                        >
-                                          {data.detected
-                                            ? "Detected"
-                                            : "Normal"}
-                                        </Badge>
-                                        <span className="text-xs md:text-sm font-medium capitalize">
-                                          {formatBehaviorLabel(behavior)}
-                                        </span>
-                                      </div>
-                                      {data.detected && (
-                                        <div className="text-xs text-muted-foreground">
-                                          {new Date().toLocaleTimeString()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <div className="text-sm md:text-lg font-bold text-primary">
-                                      {behaviorData[behavior]?.count || 0}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      detections
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <BehaviorAnalysisPanel
+                      isAnalyzing={isAnalyzing}
+                      monitoring={monitoring}
+                      currentBehaviors={currentBehaviors}
+                      behaviorData={behaviorData}
+                      getBehaviorStatusColor={getBehaviorStatusColor}
+                      formatBehaviorLabel={formatBehaviorLabel}
+                    />
                   </div>
 
                   {/* Analytics Section */}
@@ -3283,388 +2158,13 @@ const Dashboard = () => {
               </Tabs>
 
               {/* Session Analytics Modal */}
-              <Dialog
+              <SessionAnalyticsModal
                 open={showSessionAnalyticsModal}
-                onOpenChange={(open) => {
-                  setShowSessionAnalyticsModal(open);
-                  if (!open) {
-                    // Smooth cleanup when closing
-                    setTimeout(() => setSelectedSessionAnalytics(null), 200);
-                  }
-                }}
-              >
-                <DialogContent className="max-w-7xl max-h-[90vh] w-[95vw] overflow-hidden">
-                  <DialogHeader className="space-y-2 pb-4 border-b">
-                    <DialogTitle className="flex items-center gap-2 text-xl md:text-2xl">
-                      <div className="p-2 bg-primary/10 rounded-lg">
-                        <BarChart3 className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                      </div>
-                      Session Analytics
-                    </DialogTitle>
-                    <DialogDescription className="text-sm md:text-base">
-                      Detailed behavior analysis for this monitoring session
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div className="overflow-y-auto max-h-[75vh] pr-2 -mr-2">
-                    {selectedSessionAnalytics ? (
-                      <div className="space-y-4 md:space-y-6 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
-                        {/* Session Summary */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                          {[
-                            {
-                              icon: Clock,
-                              label: "Duration",
-                              value:
-                                selectedSessionAnalytics.sessionDuration ||
-                                "N/A",
-                              color: "blue",
-                            },
-                            {
-                              icon: Activity,
-                              label: "Total Detections",
-                              value:
-                                selectedSessionAnalytics.totalBehaviors || 0,
-                              color: "green",
-                            },
-                            {
-                              icon: AlertTriangle,
-                              label: "Alerts Generated",
-                              value: selectedSessionAnalytics.alertCount || 0,
-                              color: "orange",
-                            },
-                            {
-                              icon: Brain,
-                              label: "Avg Confidence",
-                              value: selectedSessionAnalytics.averageConfidence
-                                ? `${Math.round(
-                                    selectedSessionAnalytics.averageConfidence *
-                                      100
-                                  )}%`
-                                : "N/A",
-                              color: "purple",
-                            },
-                          ].map((metric, index) => (
-                            <Card
-                              key={metric.label}
-                              className="group hover:shadow-md transition-all duration-300 hover:scale-105 overflow-hidden"
-                            >
-                              <div
-                                className={`h-1 bg-gradient-to-r from-${metric.color}-400 to-${metric.color}-600 transition-all duration-300 group-hover:h-2`}
-                              />
-                              <CardHeader className="pb-2 md:pb-3">
-                                <CardTitle className="text-xs md:text-sm flex items-center gap-1 md:gap-2">
-                                  <metric.icon
-                                    className={`h-3 w-3 md:h-4 md:w-4 text-${metric.color}-600`}
-                                  />
-                                  {metric.label}
-                                </CardTitle>
-                              </CardHeader>
-                              <CardContent className="pt-0">
-                                <p
-                                  className="text-lg md:text-2xl font-bold animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
-                                  style={{ animationDelay: `${index * 100}ms` }}
-                                >
-                                  {metric.value}
-                                </p>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {/* Session Details */}
-                        {selectedSessionAnalytics.sessionSummary && (
-                          <Card
-                            className="animate-in fade-in-0 slide-in-from-left-4 duration-500"
-                            style={{ animationDelay: "200ms" }}
-                          >
-                            <CardHeader className="pb-3 md:pb-4">
-                              <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-                                <div className="p-2 bg-muted rounded-lg">
-                                  <Settings className="h-4 w-4 md:h-5 md:w-5" />
-                                </div>
-                                Session Details
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                                <div className="space-y-1 p-3 bg-muted/30 rounded-lg transition-colors hover:bg-muted/50">
-                                  <span className="font-medium text-muted-foreground">
-                                    Start Time:
-                                  </span>
-                                  <p className="font-mono text-xs md:text-sm">
-                                    {selectedSessionAnalytics.sessionSummary
-                                      .startTime
-                                      ? new Date(
-                                          selectedSessionAnalytics.sessionSummary.startTime
-                                        ).toLocaleString()
-                                      : "N/A"}
-                                  </p>
-                                </div>
-                                <div className="space-y-1 p-3 bg-muted/30 rounded-lg transition-colors hover:bg-muted/50">
-                                  <span className="font-medium text-muted-foreground">
-                                    End Time:
-                                  </span>
-                                  <p className="font-mono text-xs md:text-sm">
-                                    {selectedSessionAnalytics.sessionSummary
-                                      .endTime
-                                      ? new Date(
-                                          selectedSessionAnalytics.sessionSummary.endTime
-                                        ).toLocaleString()
-                                      : "N/A"}
-                                  </p>
-                                </div>
-                                <div className="space-y-1 p-3 bg-muted/30 rounded-lg transition-colors hover:bg-muted/50">
-                                  <span className="font-medium text-muted-foreground">
-                                    Status:
-                                  </span>
-                                  <div className="pt-1">
-                                    <Badge
-                                      variant={
-                                        selectedSessionAnalytics.sessionSummary
-                                          .status === "completed"
-                                          ? "default"
-                                          : "secondary"
-                                      }
-                                      className="animate-pulse"
-                                    >
-                                      {
-                                        selectedSessionAnalytics.sessionSummary
-                                          .status
-                                      }
-                                    </Badge>
-                                  </div>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        )}
-
-                        {/* Behavior Analysis */}
-                        <Card
-                          className="animate-in fade-in-0 slide-in-from-right-4 duration-500"
-                          style={{ animationDelay: "300ms" }}
-                        >
-                          <CardHeader className="pb-3 md:pb-4">
-                            <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-                              <div className="p-2 bg-primary/10 rounded-lg">
-                                <Brain className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                              </div>
-                              Behavior Breakdown
-                            </CardTitle>
-                            <CardDescription className="text-sm">
-                              Detailed analysis of detected behaviors during
-                              this session
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            {selectedSessionAnalytics.behaviorBreakdown &&
-                            Object.keys(
-                              selectedSessionAnalytics.behaviorBreakdown
-                            ).length > 0 ? (
-                              <div className="space-y-3 md:space-y-4">
-                                {Object.entries(
-                                  selectedSessionAnalytics.behaviorBreakdown
-                                ).map(([behavior, data], index) => {
-                                  const getBehaviorIcon = () => {
-                                    switch (behavior) {
-                                      case "eye_gaze":
-                                        return "👀";
-                                      case "tapping_hands":
-                                        return "✋";
-                                      case "tapping_feet":
-                                        return "🦶";
-                                      case "sit_stand":
-                                        return "🪑";
-                                      case "rapid_talking":
-                                        return "🗣️";
-                                      default:
-                                        return "📊";
-                                    }
-                                  };
-
-                                  // Only show behaviors with detections for cleaner display
-                                  if (data.count === 0) return null;
-
-                                  return (
-                                    <div
-                                      key={behavior}
-                                      className="border rounded-lg p-3 md:p-4 bg-gradient-to-r from-card to-card/90 hover:from-accent/5 hover:to-accent/10 transition-all duration-300 hover:shadow-lg hover:scale-[1.02] animate-in fade-in-0 slide-in-from-bottom-2"
-                                      style={{
-                                        animationDelay: `${
-                                          400 + index * 100
-                                        }ms`,
-                                      }}
-                                    >
-                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                                        <div className="flex items-center gap-3">
-                                          <div
-                                            className="text-2xl md:text-3xl animate-bounce"
-                                            style={{
-                                              animationDelay: `${
-                                                index * 200
-                                              }ms`,
-                                            }}
-                                          >
-                                            {getBehaviorIcon()}
-                                          </div>
-                                          <h3 className="text-base md:text-lg font-semibold">
-                                            {formatBehaviorLabel(behavior)}
-                                          </h3>
-                                        </div>
-                                        <Badge
-                                          variant="outline"
-                                          className="text-xs w-fit animate-pulse"
-                                        >
-                                          {data.count || 0} detections
-                                        </Badge>
-                                      </div>
-
-                                      <div className="grid grid-cols-3 gap-2 md:gap-4">
-                                        <div className="text-center p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200/50 dark:border-blue-800/50 transition-colors hover:bg-blue-100 dark:hover:bg-blue-950/30">
-                                          <div
-                                            className="text-lg md:text-2xl font-bold text-blue-600 dark:text-blue-400 animate-in zoom-in-50 duration-300"
-                                            style={{
-                                              animationDelay: `${
-                                                500 + index * 100
-                                              }ms`,
-                                            }}
-                                          >
-                                            {data.count || 0}
-                                          </div>
-                                          <div className="text-xs md:text-sm text-muted-foreground mt-1">
-                                            Total Detections
-                                          </div>
-                                        </div>
-
-                                        <div className="text-center p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200/50 dark:border-green-800/50 transition-colors hover:bg-green-100 dark:hover:bg-green-950/30">
-                                          <div
-                                            className="text-lg md:text-2xl font-bold text-green-600 dark:text-green-400 animate-in zoom-in-50 duration-300"
-                                            style={{
-                                              animationDelay: `${
-                                                600 + index * 100
-                                              }ms`,
-                                            }}
-                                          >
-                                            {data.averageConfidence
-                                              ? `${Math.round(
-                                                  data.averageConfidence * 100
-                                                )}%`
-                                              : "0%"}
-                                          </div>
-                                          <div className="text-xs md:text-sm text-muted-foreground mt-1">
-                                            Average Confidence
-                                          </div>
-                                        </div>
-
-                                        <div className="text-center p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg border border-purple-200/50 dark:border-purple-800/50 transition-colors hover:bg-purple-100 dark:hover:bg-purple-950/30">
-                                          <div
-                                            className="text-lg md:text-2xl font-bold text-purple-600 dark:text-purple-400 animate-in zoom-in-50 duration-300"
-                                            style={{
-                                              animationDelay: `${
-                                                700 + index * 100
-                                              }ms`,
-                                            }}
-                                          >
-                                            {data.totalConfidence
-                                              ? Math.round(
-                                                  data.totalConfidence * 100
-                                                ) / 100
-                                              : 0}
-                                          </div>
-                                          <div className="text-xs md:text-sm text-muted-foreground mt-1">
-                                            Total Confidence
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      {data.count > 0 && (
-                                        <div
-                                          className="mt-3 pt-3 border-t border-dashed animate-in fade-in-0 duration-500"
-                                          style={{
-                                            animationDelay: `${
-                                              800 + index * 100
-                                            }ms`,
-                                          }}
-                                        >
-                                          <div className="text-xs md:text-sm text-muted-foreground bg-muted/30 p-2 rounded">
-                                            <strong>Analysis:</strong> This
-                                            behavior was detected{" "}
-                                            <strong className="text-primary">
-                                              {data.count} times
-                                            </strong>
-                                            {data.averageConfidence ? (
-                                              <>
-                                                {" "}
-                                                with an average confidence of{" "}
-                                                <strong className="text-green-600">
-                                                  {Math.round(
-                                                    data.averageConfidence * 100
-                                                  )}
-                                                  %
-                                                </strong>
-                                              </>
-                                            ) : (
-                                              ""
-                                            )}
-                                            {data.lastDetected ? (
-                                              <>
-                                                . Last detected:{" "}
-                                                <strong>
-                                                  {new Date(
-                                                    data.lastDetected
-                                                  ).toLocaleString()}
-                                                </strong>
-                                              </>
-                                            ) : (
-                                              ""
-                                            )}
-                                            .
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="text-center py-8 md:py-12 animate-in fade-in-0 zoom-in-95 duration-500">
-                                <div className="mx-auto w-16 h-16 md:w-20 md:h-20 bg-muted rounded-full flex items-center justify-center mb-4 animate-pulse">
-                                  <Brain className="h-8 w-8 md:h-10 md:w-10 text-muted-foreground" />
-                                </div>
-                                <p className="text-muted-foreground mb-2 text-sm md:text-base">
-                                  No behavior data available for this session
-                                </p>
-                                <p className="text-xs md:text-sm text-muted-foreground">
-                                  This session may not have completed
-                                  successfully or no behaviors were detected.
-                                </p>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center py-16 animate-in fade-in-0 zoom-in-95 duration-500">
-                        <div className="text-center space-y-4">
-                          <div className="relative">
-                            <div className="w-12 h-12 border-3 border-primary/20 border-t-primary rounded-full animate-spin mx-auto" />
-                            <div className="absolute inset-0 w-12 h-12 border-2 border-transparent border-r-primary/40 rounded-full animate-ping" />
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-lg font-medium text-muted-foreground">
-                              Loading analytics...
-                            </p>
-                            <p className="text-sm text-muted-foreground/70">
-                              Analyzing session data
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
+                setOpen={setShowSessionAnalyticsModal}
+                selectedSessionAnalytics={selectedSessionAnalytics}
+                isLoading={isLoadingAnalytics}
+                formatBehaviorLabel={formatBehaviorLabel}
+              />
             </div>
           </SidebarInset>
         </div>

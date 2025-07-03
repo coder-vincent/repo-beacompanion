@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportMissingImports=false, reportOperatorIssue=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
 #!/usr/bin/env python3
 """ML Analyzer script
 
@@ -248,7 +249,19 @@ def _analyze_hand_tapping_patterns(hand_positions, frames):
                             y_coords = [lm.y for lm in hand_landmarks.landmark]
                             center_x = sum(x_coords) / len(x_coords) * frame.shape[1]
                             center_y = sum(y_coords) / len(y_coords) * frame.shape[0]
-                            frame_hands.append((center_x, center_y))
+
+                            # Only keep hands roughly in front of torso (below ~30% frame height). This avoids raising when waving near head.
+                            if center_y > frame.shape[0] * 0.3:
+                                frame_hands.append((center_x, center_y))
+                                print(
+                                    f"Frame {frame_idx}: High-quality hand accepted for tap analysis (avg conf {np.mean(landmark_confidences):.2f}, y={center_y:.0f})",
+                                    file=sys.stderr,
+                                )
+                            else:
+                                print(
+                                    f"Frame {frame_idx}: Hand above torso – ignored for tap analysis (y={center_y:.0f})",
+                                    file=sys.stderr,
+                                )
                             print(f"Frame {frame_idx}: High-quality hand detected (avg confidence: {np.mean(landmark_confidences):.2f})", file=sys.stderr)
                         else:
                             print(f"Frame {frame_idx}: Low-quality hand detection rejected", file=sys.stderr)
@@ -323,13 +336,16 @@ def _analyze_hand_tapping_patterns(hand_positions, frames):
                         # Calculate simple frame difference
                         diff = cv2.absdiff(curr_gray, prev_gray)
                         
+                        # Ensure numpy ndarray for type-checker clarity
+                        diff_np = np.asarray(diff)
+                        
                         # EXTREMELY PERMISSIVE: Count any pixels that changed by more than 10
-                        changed_pixels = np.sum(diff > 10)  # Very low threshold
-                        total_pixels = diff.size
+                        changed_pixels = int(np.sum(diff_np > 10))  # Very low threshold  # type: ignore[operator]
+                        total_pixels = diff_np.size
                         change_ratio = changed_pixels / total_pixels
                         
                         # Average intensity of changes
-                        avg_intensity = np.mean(diff)
+                        avg_intensity = float(np.mean(diff_np))  # type: ignore[arg-type]
                         
                         # Combined movement score
                         frame_movement = change_ratio * 0.7 + (avg_intensity / 255) * 0.3
@@ -339,7 +355,7 @@ def _analyze_hand_tapping_patterns(hand_positions, frames):
                         print(f"Frame {frame_idx}: changed_pixels={changed_pixels}, change_ratio={change_ratio:.4f}, avg_intensity={avg_intensity:.1f}, movement={frame_movement:.4f}", file=sys.stderr)
                         
                         # STRICT: Only detect significant intentional movements
-                        if change_ratio > 0.08 and avg_intensity > 45:  # Much higher thresholds - require substantial change
+                        if change_ratio > 0.12 and avg_intensity > 50:  # Raised thresholds
                             movement_taps += 1
                             print(f"Frame {frame_idx}: SIGNIFICANT TAPPING MOTION DETECTED! (change_ratio={change_ratio:.4f}, avg_intensity={avg_intensity:.1f})", file=sys.stderr)
                     
@@ -352,11 +368,11 @@ def _analyze_hand_tapping_patterns(hand_positions, frames):
                 avg_movement = total_frame_diff / valid_comparisons
                 
                 # STRICT SCORING: Require multiple significant movements for tapping detection
-                if movement_taps >= 3 and avg_movement > 0.025:  # Need at least 3 taps AND substantial movement
+                if movement_taps >= 5 and avg_movement > 0.03:  # Need at least 5 taps AND larger movement
                     movement_score = min(0.6, max(0.3, avg_movement * 20 + movement_taps * 0.1))
                     print(f"REPETITIVE TAPPING DETECTED! avg_movement={avg_movement:.6f}, movement_taps={movement_taps}, score={movement_score:.3f}", file=sys.stderr)
                 else:
-                    print(f"No repetitive tapping pattern: avg_movement={avg_movement:.6f}, movement_taps={movement_taps} (need 3+ taps)", file=sys.stderr)
+                    print(f"No repetitive tapping pattern: avg_movement={avg_movement:.6f}, movement_taps={movement_taps} (need 5+ taps)", file=sys.stderr)
             else:
                 print(f"No valid frame comparisons possible", file=sys.stderr)
                 
@@ -457,19 +473,24 @@ def _analyze_hand_tapping_patterns(hand_positions, frames):
     if pattern != "none":
         # Must have BOTH high confidence AND multiple detection methods agreeing
         methods_detected = 0
-        if movement_taps >= 5:  # Need lots of movement-based taps
+        if movement_taps >= 6:  # Require **at least 6** movement-based tap indications
             methods_detected += 1
-        if tap_count >= 4:  # Need lots of MediaPipe-based taps
+        if tap_count >= 5:  # Require **at least 5** MediaPipe-based taps
             methods_detected += 1
-        if confidence > 0.6:  # Need very high confidence
+        if confidence > 0.65:  # Raise required confidence slightly
             methods_detected += 1
-            
-        # Only detect if multiple methods agree AND very high confidence
-        if methods_detected >= 2 and confidence > 0.5:
+
+        # Additional safeguard – insist on **minimum total taps** (movement or landmark) before allowing detection
+        min_total_taps = max(movement_taps, tap_count)
+
+        if methods_detected >= 2 and confidence > 0.6 and min_total_taps >= 5:
             ultra_strict_detected = True
             ultra_strict_confidence = confidence
         else:
-            print(f"ULTRA-STRICT REJECTION: methods_detected={methods_detected}, confidence={confidence:.3f} (need 2+ methods AND 0.5+ confidence)", file=sys.stderr)
+            print(
+                f"ULTRA-STRICT REJECTION: methods_detected={methods_detected}, confidence={confidence:.3f}, total_taps={min_total_taps} (need ≥2 methods, ≥0.6 conf, ≥5 taps)",
+                file=sys.stderr,
+            )
     
     return {
         'detected': ultra_strict_detected,  # Extremely conservative detection
@@ -704,6 +725,13 @@ def _analyze_foot_tapping_patterns(frames):
         print(f"MediaPipe pose detection for feet/ankles with REASONABLE confidence (0.6)...", file=sys.stderr)
         
         foot_positions = []
+        rel_y_list = []      # normalized ankle y positions (ankles)
+        shoulder_y_list = [] # normalized shoulder y positions
+        qualified_shoulder_frames = 0
+        qualified_ankle_frames = 0
+        qualified_fullbody_frames = 0  # frames where shoulders, hips, and ankles satisfy conditions
+        
+        hip_y_list = []  # for body span check
         
         for frame_idx, frame_data in enumerate(frames):
             try:
@@ -723,16 +751,46 @@ def _analyze_foot_tapping_patterns(frames):
                 
                 if results.pose_landmarks:
                     # Check ankle landmarks (27=left ankle, 28=right ankle)
-                    ankle_landmarks = [results.pose_landmarks.landmark[27], results.pose_landmarks.landmark[28]]
+                    landmarks = results.pose_landmarks.landmark
+                    ankle_landmarks = [landmarks[27], landmarks[28]]
+                    shoulder_landmarks = [landmarks[11], landmarks[12]]
                     
+                    ankles_visible = 0
                     for ankle_idx, ankle in enumerate(ankle_landmarks):
-                        if ankle.visibility > 0.7:  # High quality detection only
+                        # Accept only ankles that are clearly in the lower half of the frame (y > 0.5)
+                        if ankle.visibility > 0.75 and ankle.y > 0.8:
                             foot_x = ankle.x * frame.shape[1]
                             foot_y = ankle.y * frame.shape[0]
                             frame_feet.append((foot_x, foot_y))
                             print(f"Frame {frame_idx}: High-quality {['left', 'right'][ankle_idx]} ankle detected (confidence: {ankle.visibility:.2f})", file=sys.stderr)
+                            rel_y_list.append(ankle.y)
+                            ankles_visible += 1
                         else:
                             print(f"Frame {frame_idx}: Low-quality {['left', 'right'][ankle_idx]} ankle detection rejected", file=sys.stderr)
+
+                    # Record shoulders for body-span check when both shoulders visible
+                    shoulder_vis = 0
+                    for sh_idx, sh in enumerate(shoulder_landmarks):
+                        if sh.visibility > 0.7 and sh.y < 0.35:
+                            shoulder_y_list.append(sh.y)
+                            shoulder_vis += 1
+
+                    if shoulder_vis == 2:
+                        qualified_shoulder_frames += 1
+                    if ankles_visible == 2:
+                        qualified_ankle_frames += 1
+
+                    hip_landmarks = [landmarks[23], landmarks[24]]
+
+                    hips_visible = 0
+                    for hip in hip_landmarks:
+                        if hip.visibility > 0.75 and hip.y > 0.55 and hip.y < 0.8:
+                            hip_y_list.append(hip.y)
+                            hips_visible += 1
+
+                    # Determine if this frame shows full body (shoulders near top, hips mid, ankles bottom)
+                    if shoulder_vis == 2 and hips_visible == 2 and ankles_visible == 2:
+                        qualified_fullbody_frames += 1
                 else:
                     print(f"Frame {frame_idx}: No pose detected", file=sys.stderr)
                 
@@ -742,20 +800,70 @@ def _analyze_foot_tapping_patterns(frames):
                 print(f"Frame {frame_idx} processing error: {e}", file=sys.stderr)
                 foot_positions.append([])
         
-        # Check if we have any HIGH-QUALITY foot detections
+        # Require a MINIMUM number of ankle detections spread across frames to be confident that feet are actually visible.
+        min_foot_detections = 10  # need many ankle detections (across frames) to proceed
+        
         total_foot_detections = sum(len(frame_feet) for frame_feet in foot_positions)
-        if total_foot_detections == 0:
-            print(f"No high-quality feet detected - EARLY EXIT to prevent false positives", file=sys.stderr)
-            # NO FALLBACK - if no good feet detected, return no detection
+        
+        if total_foot_detections < min_foot_detections:
+            print(
+                f"Too few ankle detections ({total_foot_detections} < {min_foot_detections}) – skipping foot-tapping analysis to avoid false positives",
+                file=sys.stderr,
+            )
             return {
                 'detected': False,
                 'confidence': 0.0,
-                'pattern': "no_feet_detected",
+                'pattern': 'too_few_ankle_detections',
                 'tap_count': 0,
-                'analysis_type': 'no_feet_early_exit'
+                'analysis_type': 'insufficient_ankles'
             }
         
-        print(f"Using high-quality pose detection with {total_foot_detections} total foot detections", file=sys.stderr)
+        # Require that shoulders are visible and that the vertical span shoulder→ankle covers at least half the frame height.
+        if not shoulder_y_list:
+            print("No reliable shoulder landmarks – body not fully in view; skipping foot analysis", file=sys.stderr)
+            return {
+                'detected': False,
+                'confidence': 0.0,
+                'pattern': 'no_shoulders',
+                'tap_count': 0,
+                'analysis_type': 'no_full_body'
+            }
+        
+        avg_ankle_y = sum(rel_y_list) / len(rel_y_list) if rel_y_list else 0.0
+        
+        if avg_ankle_y < 0.75:
+            print(
+                f"Average ankle y ({avg_ankle_y:.2f}) not in bottom quarter – likely noise; skipping foot analysis",
+                file=sys.stderr,
+            )
+            return {
+                'detected': False,
+                'confidence': 0.0,
+                'pattern': 'ankles_not_low',
+                'tap_count': 0,
+                'analysis_type': 'ankle_y_too_high'
+            }
+        
+        avg_shoulder_y = sum(shoulder_y_list) / len(shoulder_y_list)
+        avg_hip_y = sum(hip_y_list) / len(hip_y_list) if hip_y_list else 0.0
+        
+        # Full-body span using shoulders to ankles
+        body_span = avg_ankle_y - avg_shoulder_y  # normalized 0-1
+        
+        if body_span < 0.7:  # Require at least ~70 % of frame height to ensure full body
+            print(
+                f"Body span too small for reliable foot tap detection (span={body_span:.2f}); skipping.",
+                file=sys.stderr,
+            )
+            return {
+                'detected': False,
+                'confidence': 0.0,
+                'pattern': 'body_not_full',
+                'tap_count': 0,
+                'analysis_type': 'incomplete_body'
+            }
+        
+        print(f"Using high-quality pose detection with {sum(len(frame_feet) for frame_feet in foot_positions)} total foot detections", file=sys.stderr)
         
     except Exception as e:
         print(f"MediaPipe pose detection failed: {e}", file=sys.stderr)
@@ -797,7 +905,7 @@ def _analyze_foot_tapping_patterns(frames):
                     if curr_frame is not None and prev_frame is not None:
                         # Focus on lower part of image where feet would be
                         h, w = curr_frame.shape[:2]
-                        foot_area_y_start = int(h * 0.6)  # Lower 40% of image
+                        foot_area_y_start = int(h * 0.75)  # Lower 25% of image
                         
                         curr_gray = cv2.cvtColor(curr_frame[foot_area_y_start:, :], cv2.COLOR_BGR2GRAY)
                         prev_gray = cv2.cvtColor(prev_frame[foot_area_y_start:, :], cv2.COLOR_BGR2GRAY)
@@ -812,12 +920,13 @@ def _analyze_foot_tapping_patterns(frames):
                         diff = cv2.absdiff(curr_gray, prev_gray)
                         
                         # VERY STRICT: Require substantial changes in foot area
-                        changed_pixels = np.sum(diff > 30)  # Higher threshold than hands
-                        total_pixels = diff.size
+                        diff_np = np.asarray(diff)
+                        changed_pixels = int(np.sum(diff_np > 30))  # type: ignore[operator]
+                        total_pixels = diff_np.size
                         change_ratio = changed_pixels / total_pixels
                         
                         # Average intensity of changes
-                        avg_intensity = np.mean(diff)
+                        avg_intensity = float(np.mean(diff_np))  # type: ignore[arg-type]
                         
                         # Combined movement score
                         frame_movement = change_ratio * 0.7 + (avg_intensity / 255) * 0.3
@@ -856,7 +965,7 @@ def _analyze_foot_tapping_patterns(frames):
     ankle_score = 0.0
     
     if any(len(frame_feet) > 0 for frame_feet in foot_positions):
-        print(f"Running MediaPipe ankle analysis on {total_foot_detections} foot detections...", file=sys.stderr)
+        print(f"Running MediaPipe ankle analysis on {sum(len(frame_feet) for frame_feet in foot_positions)} foot detections...", file=sys.stderr)
         
         if len(foot_positions) >= 2:
             for foot_idx in range(2):  # Check left and right feet
@@ -1400,7 +1509,7 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
             if len(crops) < 2:  # need at least 2 frames
                 print(f"Eye gaze: only {len(crops)} valid crops from {len(frames)} frames", file=sys.stderr)
                 # Fallback: analyze frame movement/brightness for basic detection
-                frame_analysis = _analyze_frame_movement(frames)
+                frame_analysis = _analyze_frame_movement(frames if isinstance(frames, list) else [])
                 confidence = max(0.05, min(0.4, frame_analysis * 1.2 + 0.05))  # More conservative
                 detected = bool(confidence > 0.5)  # Much higher threshold - only detect significant movement
                 result = {"detected": detected, "confidence": round(float(confidence), 3), "gaze": "straight", "fallback": True}
@@ -1586,7 +1695,7 @@ def main() -> None:
         # Ensure all values are JSON serializable
         if isinstance(result.get('detected'), np.bool_):
             result['detected'] = bool(result['detected'])
-        if isinstance(result.get('confidence'), (np.float32, np.float64)):
+        if isinstance(result.get('confidence'), np.floating):
             result['confidence'] = float(result['confidence'])
             
         sys.stdout.write(json.dumps(result))
