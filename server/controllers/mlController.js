@@ -10,6 +10,21 @@ const __dirname = path.dirname(__filename);
 // Store recent detections to prevent unrealistic simultaneous behaviors
 const recentDetections = new Map();
 
+// Check if Python is available once at startup
+let pythonAvailable = true;
+try {
+  execSync("python --version", { stdio: "ignore" });
+} catch {
+  try {
+    execSync("python3 --version", { stdio: "ignore" });
+  } catch {
+    pythonAvailable = false;
+    console.warn(
+      "[WARN] Python binary not found – ML analysis will fall back to simulation"
+    );
+  }
+}
+
 /**
  * Apply minimal intelligent filtering to reduce false positives while preserving real detections
  */
@@ -165,8 +180,22 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Try real ML analysis
+    // Determine behavior type
     const behaviorType = req.body.behaviorType || req.body.behavior_type;
+
+    // If Python missing, force simulation so container stays healthy
+    if (!pythonAvailable) {
+      const mockAnalysis = {
+        behavior_type: behaviorType,
+        confidence: 0.0,
+        detected: false,
+        fallback: true,
+        message: "Python not available – returning simulation result",
+      };
+      return res.json({ success: true, analysis: mockAnalysis });
+    }
+
+    // Try real ML analysis
     const data =
       req.body.data !== undefined ? req.body.data : req.body.payload || null;
     const frame = req.body.frame || req.body.Frame || null;
