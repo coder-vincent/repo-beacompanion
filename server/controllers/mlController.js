@@ -28,6 +28,13 @@ try {
 // Simple concurrency guard – limits heavy ML analysis to one at a time to avoid OOM/502
 let activeAnalyses = 0;
 
+// Utility to safely release the analysis slot only once
+const releaseAnalysisSlot = () => {
+  if (activeAnalyses > 0) {
+    activeAnalyses -= 1;
+  }
+};
+
 /**
  * Apply minimal intelligent filtering to reduce false positives while preserving real detections
  */
@@ -370,6 +377,7 @@ export const analyzeBehavior = async (req, res) => {
       // Set a timeout for the Python process (5 minutes)
       const timeout = setTimeout(() => {
         pythonProcess.kill("SIGTERM");
+        releaseAnalysisSlot();
         console.error("Python process timed out after 5 minutes");
         res.status(408).json({
           success: false,
@@ -622,9 +630,7 @@ export const analyzeBehavior = async (req, res) => {
         message: "Failed to prepare data for ML analysis",
         error: fileError.message,
       });
-    } finally {
-      // Ensure counter is decremented even on error
-      activeAnalyses = Math.max(0, activeAnalyses - 1);
+      releaseAnalysisSlot();
     }
   } catch (error) {
     console.error("ML Controller Error:", error);
@@ -633,6 +639,7 @@ export const analyzeBehavior = async (req, res) => {
       message: "Internal server error",
       error: error.message,
     });
+    releaseAnalysisSlot();
   }
 };
 
