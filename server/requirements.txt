@@ -8,10 +8,9 @@
 numpy==1.24.3
 pillow==10.0.1
 
-# PyTorch CPU-only wheels (official) – compatible with Python 3.10
-# Latest PyTorch release with official cp310 wheels. Default PyPI already hosts CPU wheels, so
-# no extra index or "+cpu" build tag needed.
-torch==2.2.1
+# PyTorch 2.2.x compatible with Python 3.10. These wheels work on CPU-only
+# systems without requiring CUDA.
+torch==2.2.2
 torchvision==0.17.2
 
 # MediaPipe for pose/hand/face detection (essential for behavior analysis)
