@@ -3,8 +3,8 @@ pandas
 matplotlib
 scikit-learn
 opencv-python
-torch
-torchvision
+torch==2.2.2
+torchvision==0.17.2
 tflite-runtime
 jupyterlab
 pyyaml  # For config files

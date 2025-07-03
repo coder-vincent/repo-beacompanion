@@ -140,7 +140,7 @@ const BehaviorAnalysisPanel = ({
         {/* Speech Behaviors */}
         <div className="space-y-2">
           <h3 className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
-            Speech Behaviors
+            Speech Analysis
           </h3>
           <div className="grid gap-2">
             {["rapid_talking"].map((behavior) => {
