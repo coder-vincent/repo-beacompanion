@@ -620,19 +620,30 @@ const Dashboard = () => {
         if (!frameSequence || frameSequence.length === 0) {
           return null;
         }
-        // Call real Python ML API
-        const response = await fetch(`${backendUrl}/api/ml/analyze`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            behaviorType: behaviorType,
-            frame_sequence: frameSequence,
-            frame: frameData,
-          }),
-        });
+
+        // Send request with simple 429-retry logic
+        const requestBody = {
+          behaviorType: behaviorType,
+          frame_sequence: frameSequence,
+          frame: frameData,
+        };
+
+        let response;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          response = await fetch(`${backendUrl}/api/ml/analyze`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify(requestBody),
+          });
+
+          if (response.status !== 429) break; // Exit loop if not busy
+
+          // Server busy – wait then retry
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        }
 
         if (!response.ok) {
           throw new Error(`ML API error: ${response.status}`);
@@ -807,29 +818,24 @@ const Dashboard = () => {
         "sit_stand", // Added back - continuous monitoring with transition-only logic
       ];
 
-      let results = [];
-
-      // Analyze each behavior individually using real Python ML
-      const analysisPromises = behaviorTypes.map(async (behaviorType) => {
+      // Analyze behaviors SEQUENTIALLY to avoid server overload (one request at a time)
+      const analysisResults = [];
+      for (const behaviorType of behaviorTypes) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const result = await analyzeBehavior(behaviorType);
-
-          return result;
+          analysisResults.push(result);
         } catch (error) {
           console.error(`❌ Error analyzing ${behaviorType}:`, error);
-          return {
+          analysisResults.push({
             behavior_type: behaviorType,
             confidence: 0,
             detected: false,
             timestamp: new Date().toISOString(),
             message: `Python ML analysis failed: ${error.message}`,
-          };
+          });
         }
-      });
-
-      // Wait for all analyses to complete
-      const analysisResults = await Promise.all(analysisPromises);
-      results = analysisResults.filter((r) => r !== null);
+      }
 
       // Reset current behavior snapshot for this cycle
       const newBehaviors = {};
@@ -841,7 +847,7 @@ const Dashboard = () => {
       const newAlerts = [...alerts];
       const incrementMap = {};
 
-      results.forEach((result, idx) => {
+      analysisResults.forEach((result, idx) => {
         const behaviorType = result?.behavior_type || behaviorTypes[idx];
 
         if (!result) {
@@ -1614,25 +1620,24 @@ const Dashboard = () => {
         // Excluding sit_stand for efficiency
       ];
 
-      const analysisPromises = behaviorTypes.map(async (behaviorType) => {
+      // Sequential analysis to respect backend single-analysis constraint
+      const analysisResults = [];
+      for (const behaviorType of behaviorTypes) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const result = await analyzeBehavior(behaviorType);
-
-          return result;
+          analysisResults.push(result);
         } catch (error) {
           console.error(`❌ Error analyzing ${behaviorType}:`, error);
-          return {
+          analysisResults.push({
             behavior_type: behaviorType,
             confidence: 0,
             detected: false,
             timestamp: new Date().toISOString(),
             message: `Python ML analysis failed: ${error.message}`,
-          };
+          });
         }
-      });
-
-      const analysisResults = await Promise.all(analysisPromises);
-      const results = analysisResults.filter((r) => r !== null);
+      }
 
       // Process results (same logic as original runBehavioralAnalysis)
       const newBehaviors = {};
@@ -1643,7 +1648,7 @@ const Dashboard = () => {
       const newAlerts = [...alerts];
       const incrementMap = {};
 
-      results.forEach((result, idx) => {
+      analysisResults.forEach((result, idx) => {
         const behaviorType = result?.behavior_type || behaviorTypes[idx];
 
         if (!result) {

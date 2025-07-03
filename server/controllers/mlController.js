@@ -25,6 +25,9 @@ try {
   }
 }
 
+// Simple concurrency guard – limits heavy ML analysis to one at a time to avoid OOM/502
+let activeAnalyses = 0;
+
 /**
  * Apply minimal intelligent filtering to reduce false positives while preserving real detections
  */
@@ -147,6 +150,16 @@ function applyIntelligentFiltering(result, behaviorType) {
 
 // ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
+  // If a heavy analysis is already in progress, immediately reject to keep RAM under control
+  if (activeAnalyses >= 1) {
+    return res.status(429).json({
+      success: false,
+      message:
+        "Server is busy processing another ML request – try again in a moment.",
+    });
+  }
+
+  activeAnalyses += 1;
   try {
     // FORCE ENABLE REAL ML - Python backend is working perfectly
     const shouldUseSimulation = false; // Always use real ML
@@ -609,6 +622,9 @@ export const analyzeBehavior = async (req, res) => {
         message: "Failed to prepare data for ML analysis",
         error: fileError.message,
       });
+    } finally {
+      // Ensure counter is decremented even on error
+      activeAnalyses = Math.max(0, activeAnalyses - 1);
     }
   } catch (error) {
     console.error("ML Controller Error:", error);
