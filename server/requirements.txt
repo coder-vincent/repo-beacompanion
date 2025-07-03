@@ -10,8 +10,9 @@ pillow==10.0.1
 
 # PyTorch CPU-only wheels (official) – compatible with Python 3.10
 # Always specify the +cpu build tag when using the dedicated CPU index.
-torch==2.3.0+cpu --index-url https://download.pytorch.org/whl/cpu
-torchvision==0.18.0+cpu --index-url https://download.pytorch.org/whl/cpu
+# 2.2.2 is the latest version providing cp310 wheels as of July 2025.
+torch==2.2.2+cpu --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.17.2+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # MediaPipe for pose/hand/face detection (essential for behavior analysis)
 mediapipe==0.10.21
