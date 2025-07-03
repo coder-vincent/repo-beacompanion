@@ -98,17 +98,24 @@ app.use(
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // Check if the origin is in our allowed list
-  if (allowedOrigins.includes(origin)) {
+  // Handle different origin scenarios
+  if (!origin) {
+    // No origin header (direct API calls, server-to-server, etc.)
+    res.header("Access-Control-Allow-Origin", "*");
+    console.log(`🔓 CORS: No origin header - allowing all (likely API call)`);
+  } else if (allowedOrigins.includes(origin)) {
+    // Origin is in our allowed list
     res.header("Access-Control-Allow-Origin", origin);
     console.log(`✅ CORS: Allowed origin ${origin}`);
   } else if (process.env.NODE_ENV !== "production") {
     // In development, be more permissive
-    res.header("Access-Control-Allow-Origin", origin || "*");
+    res.header("Access-Control-Allow-Origin", origin);
     console.log(`🔧 CORS: Dev mode - allowing origin ${origin}`);
   } else {
+    // Production with unknown origin - still allow but log warning
+    res.header("Access-Control-Allow-Origin", origin);
     console.warn(
-      `❌ CORS: Rejected origin ${origin}. Allowed origins:`,
+      `⚠️ CORS: Unknown origin ${origin} allowed. Allowed origins:`,
       allowedOrigins
     );
   }
@@ -122,7 +129,11 @@ app.use((req, res, next) => {
 
   // Handle preflight requests
   if (req.method === "OPTIONS") {
-    console.log(`🔍 CORS: Handling OPTIONS preflight request from ${origin}`);
+    console.log(
+      `🔍 CORS: Handling OPTIONS preflight request from ${
+        origin || "no-origin"
+      }`
+    );
     res.sendStatus(200);
   } else {
     next();
