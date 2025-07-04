@@ -64,7 +64,6 @@ const MLAnalysis = () => {
     },
   ];
 
-  // Check model status on component mount
   useEffect(() => {
     checkModelStatus();
   }, []);
@@ -102,7 +101,6 @@ const MLAnalysis = () => {
     setAnalysisResult(null);
 
     try {
-      // Parse input data (expecting JSON array)
       let parsedData;
       try {
         parsedData = JSON.parse(inputData);

@@ -16,11 +16,10 @@ export const AppContextProvider = (props) => {
       ? "http://localhost:4000"
       : "https://repo-beacompanion-server.onrender.com");
 
-  const [isLoggedIn, setIsLoggedIn] = useState(null); // null = loading, true = logged in, false = not logged in
+  const [isLoggedIn, setIsLoggedIn] = useState(null);
   const [userData, setUserData] = useState(null);
   const { socket, isConnected } = useSocket();
 
-  // On initial load, ensure axios has Authorization header if token is stored
   useEffect(() => {
     const storedToken = localStorage.getItem("authToken");
     if (storedToken) {
@@ -31,33 +30,30 @@ export const AppContextProvider = (props) => {
   const getUserData = useCallback(async () => {
     try {
       console.log(
-        "🔍 AppContext: Attempting to fetch user data from:",
+        "AppContext: Attempting to fetch user data from:",
         backendUrl + "/api/user/data"
       );
       console.log(
-        "🔍 AppContext: axios.defaults.withCredentials:",
+        "AppContext: axios.defaults.withCredentials:",
         axios.defaults.withCredentials
       );
-      console.log("🔍 AppContext: document.cookie:", document.cookie);
+      console.log("AppContext: document.cookie:", document.cookie);
 
-      // Extract token from cookie if available (for production fallback)
       const tokenMatch = document.cookie.match(/token=([^;]+)/);
       const tokenFromCookie = tokenMatch ? tokenMatch[1] : null;
-      // Fallback: get token stored in localStorage (helps on mobile where cookies may be blocked)
       const tokenFromStorage = localStorage.getItem("authToken");
 
       const config = {
         withCredentials: true,
       };
 
-      // Prioritize token from cookie, otherwise use token from localStorage
       const authTokenHeader = tokenFromCookie || tokenFromStorage;
       if (authTokenHeader) {
         config.headers = {
           Authorization: `Bearer ${authTokenHeader}`,
         };
         console.log(
-          "🔍 AppContext: Added Authorization header",
+          "AppContext: Added Authorization header",
           authTokenHeader === tokenFromCookie
             ? "from cookie"
             : "from localStorage"
@@ -66,30 +62,25 @@ export const AppContextProvider = (props) => {
 
       const { data } = await axios.get(backendUrl + "/api/user/data", config);
 
-      console.log("📊 AppContext: User data response:", data);
+      console.log("AppContext: User data response:", data);
 
       if (data.success) {
-        console.log(
-          "✅ AppContext: Successfully got user data:",
-          data.userData
-        );
+        console.log("AppContext: Successfully got user data:", data.userData);
         setUserData(data.userData);
       } else {
-        console.error("❌ AppContext: Failed to get user data:", data.message);
+        console.error("AppContext: Failed to get user data:", data.message);
         setUserData(null);
-        // If getting user data failed, the user might not be properly authenticated
         setIsLoggedIn(false);
       }
     } catch (error) {
-      console.error("🚨 AppContext: Error getting user data:", error);
-      console.error("🚨 AppContext: Error details:", {
+      console.error("AppContext: Error getting user data:", error);
+      console.error("AppContext: Error details:", {
         message: error.message,
         status: error.response?.status,
         statusText: error.response?.statusText,
         data: error.response?.data,
       });
       setUserData(null);
-      // If there's a network error or auth error, treat as not logged in
       if (error.response?.status === 401 || error.response?.status === 403) {
         setIsLoggedIn(false);
       }
@@ -129,7 +120,6 @@ export const AppContextProvider = (props) => {
     }
   }, [backendUrl, getUserData]);
 
-  // Set up socket event listeners when socket is available
   useEffect(() => {
     if (socket && isConnected) {
       console.log("Setting up AppContext socket listeners");
@@ -140,8 +130,6 @@ export const AppContextProvider = (props) => {
       };
 
       socket.on("userListUpdate", handleUserListUpdate);
-
-      // Cleanup function
       return () => {
         socket.off("userListUpdate", handleUserListUpdate);
       };

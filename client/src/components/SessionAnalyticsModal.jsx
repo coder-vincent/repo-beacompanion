@@ -35,9 +35,6 @@ const SessionAnalyticsModal = ({
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (!o) {
-          // optional: you can clear analytics after close by parent
-        }
       }}
     >
       <DialogContent className="max-w-7xl max-h-[90vh] w-[95vw] overflow-hidden">

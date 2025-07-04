@@ -7,14 +7,12 @@ const ProtectedRoute = ({ children }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // If we know the user is not logged in, redirect to login
     if (isLoggedIn === false) {
       console.log("User not authenticated, redirecting to login");
       navigate("/login");
     }
   }, [isLoggedIn, navigate]);
 
-  // Show loading while checking authentication
   if (isLoggedIn === null || isLoggedIn === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -26,7 +24,6 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  // Show loading while fetching user data
   if (isLoggedIn && !userData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -38,12 +35,10 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  // If not logged in, don't render children (redirect will happen via useEffect)
   if (!isLoggedIn) {
     return null;
   }
 
-  // Render children if authenticated
   return children;
 };
 

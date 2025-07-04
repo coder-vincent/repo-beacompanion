@@ -13,7 +13,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false, // Allow Vite to find an available port if 5173 is busy
-    host: "localhost", // Only listen on localhost
+    strictPort: false,
+    host: "localhost",
   },
 });

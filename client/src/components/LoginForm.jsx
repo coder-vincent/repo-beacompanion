@@ -80,7 +80,6 @@ const LoginForm = ({
         if (data.success) {
           toast.success("Logged in successfully!");
           setIsLoggedIn(true);
-          // Persist token for mobile browsers that block third-party cookies
           localStorage.setItem("authToken", data.token);
           axios.defaults.headers.common[
             "Authorization"

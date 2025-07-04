@@ -32,7 +32,7 @@ import VideoFeed from "@/components/VideoFeed";
 import BehaviorAnalysisPanel from "@/components/BehaviorAnalysisPanel";
 import MonitoringControls from "@/components/MonitoringControls";
 
-const SPEECH_CHECK_INTERVAL = 60000; // 60 seconds
+const SPEECH_CHECK_INTERVAL = 60000;
 const RAPID_TALKING_MIN_WPM = 150;
 const RAPID_TALKING_MAX_WPM = 200;
 const MIN_TRANSCRIPT_CONFIDENCE = 0.5;
@@ -46,7 +46,7 @@ const BATCH_BEHAVIORS = [
 ];
 
 const Dashboard = () => {
-  const { backendUrl, userData, isLoggedIn } = useContext(AppContext);
+  const { backendUrl, userData } = useContext(AppContext);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -95,12 +95,11 @@ const Dashboard = () => {
   const analysisInFlightRef = useRef(0);
 
   const [, setRapidTalkingStatus] = useState("Ready");
-  const wordCountRef = useRef(0); // keeps latest word count for interval closure
+  const wordCountRef = useRef(0);
   const [, setSessionStartTime] = useState(null);
   const speechIntervalRef = useRef(null);
   const [currentWpm, setCurrentWpm] = useState(0);
   const wpm30IntervalRef = useRef(null);
-  // Track partial interim transcript to count incremental words without duplication
   const interimTranscriptRef = useRef("");
 
   const recognizerRef = useRef(null);
@@ -468,7 +467,6 @@ const Dashboard = () => {
         if (!incrementMap[behaviorType]) {
           incrementMap[behaviorType] = { inc: 0, conf: 0 };
         }
-        // Parse confidence to a numeric value to avoid string concatenation issues
         const rawConf = result.confidence ?? result.probability ?? 0;
         const numericConf = parseFloat(rawConf) || 0;
 
@@ -505,7 +503,6 @@ const Dashboard = () => {
           const incInfo = incrementMap[behavior];
           if (incInfo) {
             updated[behavior].count += incInfo.inc;
-            // Ensure numeric addition, not string concatenation
             const prevTotal =
               parseFloat(updated[behavior].totalConfidence) || 0;
             updated[behavior].totalConfidence = prevTotal + incInfo.conf;
@@ -532,30 +529,24 @@ const Dashboard = () => {
     }
   }, [userData?.id, loadSessionHistory]);
 
-  // Perform global cleanup only when the component unmounts.
-  // We intentionally leave out `stream` from the dependency array so that this
-  // effect does NOT run every time the stream instance changes (e.g. when we
-  // first acquire the camera or when it is re-acquired for health checks).
-  // Clearing the `<video>` element's `srcObject` on every stream update caused
-  // a brief teardown/rebuild cycle, which looked like the camera was
-  // "restarting" each time monitoring began. Moving this cleanup to run only
-  // on unmount prevents that flicker while still releasing resources when the
-  // dashboard is left.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
+    // Capture current values to avoid stale refs in cleanup and satisfy eslint rules
+    const currentVideo = videoRef.current;
+    const currentSpeechInterval = speechIntervalRef.current;
+    const currentTimerId = timerIntervalId;
+
     return () => {
-      if (timerIntervalId) {
-        clearInterval(timerIntervalId);
+      if (currentTimerId) {
+        clearInterval(currentTimerId);
       }
-      if (speechIntervalRef.current) {
-        clearInterval(speechIntervalRef.current);
+      if (currentSpeechInterval) {
+        clearInterval(currentSpeechInterval);
       }
-      if (videoRef.current) {
-        // Null the video source on unmount only.
-        videoRef.current.srcObject = null;
+      if (currentVideo) {
+        currentVideo.srcObject = null;
       }
     };
-  }, []);
+  }, [timerIntervalId]);
 
   useEffect(() => {
     const currentVideoRef = videoRef.current;
@@ -805,7 +796,6 @@ const Dashboard = () => {
         setStream(null);
       }
 
-      // Ensure speech monitoring timers are cleared
       stopSpeechMonitoring();
 
       if (sessionId) {
@@ -830,8 +820,6 @@ const Dashboard = () => {
           body: JSON.stringify(sessionPayload),
         });
         setSessionId(null);
-
-        // Reload session history to reflect the updated status
         await loadSessionHistory();
       }
 
@@ -868,10 +856,6 @@ const Dashboard = () => {
     if (data.detected) return "secondary";
     return "default";
   };
-
-  // Basic health check: only verify that the MediaStream itself is active.
-  // Some browsers briefly flag video tracks as "ended" even though they recover,
-  // which caused premature reacquisition and monitoring interruption (~6 s).
   const monitorStreamHealth = useCallback(() => {
     if (!stream || !monitoring) return true;
     return stream.active;
@@ -887,9 +871,8 @@ const Dashboard = () => {
           streamFailCountRef.current = 0;
         }
 
-        // Attempt reacquisition only after 3 consecutive failures (~30-s)
         if (streamFailCountRef.current >= 3) {
-          streamFailCountRef.current = 0; // reset counter
+          streamFailCountRef.current = 0;
           toast.error("Camera stream lost. Attempting to reacquire...");
           try {
             const newStream = await navigator.mediaDevices.getUserMedia({
@@ -916,7 +899,7 @@ const Dashboard = () => {
             );
           }
         }
-      }, 10000); // check every 10 s
+      }, 10000);
 
       return () => {
         clearInterval(healthInterval);
@@ -928,7 +911,6 @@ const Dashboard = () => {
     if (!monitoring) return;
     if (manualAnalysisIntervalId) return;
 
-    // Begin speech monitoring only when user triggers "Analyze Now"
     if (!speechIntervalRef.current) {
       startSpeechMonitoring();
     }
@@ -1182,15 +1164,14 @@ const Dashboard = () => {
   };
 
   const startSpeechRecognition = () => {
-    // Always stop any previous instance
     if (recognizerRef.current) {
       try {
         recognizerRef.current.onend = null;
         recognizerRef.current.onerror = null;
         recognizerRef.current.onresult = null;
         recognizerRef.current.stop();
-      } catch {
-        // Ignore stop errors
+      } catch (e) {
+        console.error("Speech recognition stop error:", e);
       }
       recognizerRef.current = null;
     }
@@ -1233,7 +1214,6 @@ const Dashboard = () => {
 
       recognizer.onerror = (event) => {
         if (event.error === "aborted") {
-          // Not fatal, just log
           console.log("[RapidTalking] Speech recognition aborted (not fatal)");
         } else if (event.error !== "no-speech") {
           setRapidTalkingStatus("Speech recognition error: " + event.error);
@@ -1242,7 +1222,6 @@ const Dashboard = () => {
 
       recognizer.onend = () => {
         setRapidTalkingStatus("Speech recognition ended");
-        // Always create a new instance for restart
         if (
           sessionStartRef.current &&
           Date.now() - sessionStartRef.current < SPEECH_CHECK_INTERVAL
@@ -1268,8 +1247,8 @@ const Dashboard = () => {
         recognizerRef.current.onerror = null;
         recognizerRef.current.onresult = null;
         recognizerRef.current.stop();
-      } catch {
-        // Ignore stop errors
+      } catch (e) {
+        console.error("Speech recognition stop error:", e);
       }
       recognizerRef.current = null;
     }
@@ -1286,10 +1265,8 @@ const Dashboard = () => {
       return;
     }
 
-    // Each interval is exactly SPEECH_CHECK_INTERVAL (1 minute)
     const averageWpm = (wordCountRef.current * 60000) / SPEECH_CHECK_INTERVAL;
 
-    // Use actual computed WPM value for analysis
     wpmListRef.current = [averageWpm];
     setCurrentWpm(averageWpm);
     console.log(
@@ -1314,7 +1291,6 @@ const Dashboard = () => {
       const result = await response.json();
       backendDetected = Boolean(result.detected);
 
-      // Handle new backend response shape where confidence is an object
       const backendConfObj = result.confidence;
       if (backendConfObj && typeof backendConfObj === "object") {
         backendConfidence = parseFloat(
@@ -1362,7 +1338,6 @@ const Dashboard = () => {
       console.error("Rapid talking ML API error:", e);
     }
 
-    // Local fallback if backend did not detect (or API failed)
     if (
       !backendDetected &&
       averageWpm >= RAPID_TALKING_MIN_WPM &&
@@ -1406,7 +1381,7 @@ const Dashboard = () => {
         rapid_talking: { detected: false, confidence: 0.4 },
       }));
     }
-    wordCountRef.current = 0; // reset for next interval
+    wordCountRef.current = 0;
     console.log("[RapidTalking] Resetting counters for next 1-minute interval");
   };
 
@@ -1421,7 +1396,6 @@ const Dashboard = () => {
       clearInterval(wpm30IntervalRef.current);
     }
 
-    // Start first session immediately
     startSpeechRecognition();
     console.log(
       "[RapidTalking] Speech monitoring started, interval set for",
@@ -1429,7 +1403,6 @@ const Dashboard = () => {
       "ms"
     );
 
-    // Update current WPM every 60 seconds for UI display (1-minute window)
     wpm30IntervalRef.current = setInterval(() => {
       if (sessionStartRef.current) {
         const elapsedMinutes = (Date.now() - sessionStartRef.current) / 60000;
@@ -1440,11 +1413,8 @@ const Dashboard = () => {
       }
     }, 60000);
 
-    // Set up interval for 60-second checks (always evaluate)
     speechIntervalRef.current = setInterval(() => {
-      // End current recognition session (if any)
       stopSpeechRecognition();
-      // After a short pause, evaluate and restart
       setTimeout(() => {
         checkRapidTalking();
         startSpeechRecognition();
@@ -1627,8 +1597,6 @@ const Dashboard = () => {
                                   data.count > 0
                                     ? data.totalConfidence / data.count
                                     : 0;
-
-                                // Display placeholder when confidence is zero
                                 const formattedConfidence =
                                   avgConfidence === 0
                                     ? "—"
@@ -1772,17 +1740,6 @@ const Dashboard = () => {
                               <div className="flex items-center gap-2 justify-end">
                                 <Button
                                   onClick={() => {
-                                    console.log(
-                                      `🎯 Attempting to load analytics for session ${session.id}`
-                                    );
-                                    console.log(
-                                      `👤 Current user data:`,
-                                      userData
-                                    );
-                                    console.log(
-                                      `🔐 User logged in:`,
-                                      isLoggedIn
-                                    );
                                     loadSessionAnalytics(session.id);
                                   }}
                                   variant="outline"
