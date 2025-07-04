@@ -342,11 +342,17 @@ export const resetPassword = async (req, res) => {
 
 export const getActiveSessions = async (req, res) => {
   try {
-    const { userId } = req.body;
+    // Prefer explicit userId sent by client, fallback to query params, then auth middleware
+    const userId =
+      req.body?.userId || req.query?.userId || req.user?.id || null;
+
+    if (!userId) {
+      return res.json({ success: false, message: "User ID is required" });
+    }
 
     const sessions = await getUserSessionsByUserId(userId);
 
-    // Filter out expired sessions
+    // Filter out expired sessions only
     const activeSessions = sessions.filter(
       (session) => new Date(session.expiresAt) > new Date()
     );

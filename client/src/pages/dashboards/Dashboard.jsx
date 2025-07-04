@@ -574,6 +574,7 @@ const Dashboard = () => {
       setSelectedSessionAnalytics(null);
       setShowSessionAnalyticsModal(true);
 
+      const authToken = localStorage.getItem("authToken");
       const response = await fetch(
         `${backendUrl}/api/session/${sessionId}/analytics`,
         {
@@ -581,6 +582,7 @@ const Dashboard = () => {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
           },
         }
       );
@@ -619,9 +621,15 @@ const Dashboard = () => {
 
   const createSession = async () => {
     try {
+      const authTokenCreate = localStorage.getItem("authToken");
       const response = await fetch(`${backendUrl}/api/session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authTokenCreate
+            ? { Authorization: `Bearer ${authTokenCreate}` }
+            : {}),
+        },
         credentials: "include",
         body: JSON.stringify({
           userId: userData?.id,
