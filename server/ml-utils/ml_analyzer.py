@@ -782,7 +782,7 @@ def _analyze_foot_tapping_patterns(frames):
                 if results.pose_landmarks:
                     # Check ankle landmarks (27=left ankle, 28=right ankle)
                     landmarks = results.pose_landmarks.landmark
-                    ankle_landmarks = [landmarks[27], landmarks[28]]
+                    ankle_landmarks = [landmarks[27], landmarks[28]]  # type: ignore[index]
                     shoulder_landmarks = [landmarks[11], landmarks[12]]
                     
                     ankles_visible = 0
@@ -810,7 +810,7 @@ def _analyze_foot_tapping_patterns(frames):
                     if ankles_visible == 2:
                         qualified_ankle_frames += 1
 
-                    hip_landmarks = [landmarks[23], landmarks[24]]
+                    hip_landmarks = [landmarks[23], landmarks[24]]  # type: ignore[index]
 
                     hips_visible = 0
                     for hip in hip_landmarks:
