@@ -117,12 +117,16 @@ const Dashboard = () => {
     }
 
     try {
+      const authTokenHistory = localStorage.getItem("authToken");
       const response = await fetch(
         `${backendUrl}/api/session/user/${userData.id}`,
         {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
+            ...(authTokenHistory
+              ? { Authorization: `Bearer ${authTokenHistory}` }
+              : {}),
           },
         }
       );
@@ -805,6 +809,7 @@ const Dashboard = () => {
       stopSpeechMonitoring();
 
       if (sessionId) {
+        const authTokenEnd = localStorage.getItem("authToken");
         const sessionPayload = {
           endTime: new Date().toISOString(),
           duration: formatDuration(timer),
@@ -815,9 +820,9 @@ const Dashboard = () => {
 
         await fetch(`${backendUrl}/api/session/${sessionId}/end`, {
           method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: authTokenEnd
+            ? { Authorization: `Bearer ${authTokenEnd}` }
+            : {},
           credentials: "include",
           body: JSON.stringify(sessionPayload),
         });
