@@ -25,9 +25,13 @@ try {
   }
 }
 
-// Simple concurrency guard – limits heavy ML analysis to avoid OOM/502
+// Allow only 1 concurrent analysis by default to reduce memory usage.
+// You can override this via the MAX_CONCURRENT_ANALYSES env var.
 let activeAnalyses = 0;
-const MAX_CONCURRENT_ANALYSES = 2; // Allow 2 concurrent analyses for better responsiveness
+const MAX_CONCURRENT_ANALYSES = parseInt(
+  process.env.MAX_CONCURRENT_ANALYSES || "1",
+  10
+);
 
 // Track analysis start times to detect stuck analyses
 const analysisStartTimes = new Map();

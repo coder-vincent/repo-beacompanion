@@ -38,11 +38,10 @@ from torchvision import transforms
 # prints escape.
 _silent = io.StringIO()
 with contextlib.redirect_stdout(_silent), contextlib.redirect_stderr(_silent):
-    from model_loader import load_all_models
+    from model_loader import load_model
 
-# Later, when actually loading weights, capture again:
-with contextlib.redirect_stdout(_silent), contextlib.redirect_stderr(_silent):
-    MODELS = load_all_models()
+# Global cache of lazily-loaded models (behaviour -> torch.nn.Module)
+MODELS: dict[str, torch.nn.Module] = {}
 
 # For eye gaze preprocessing -------------------------------------------------
 
@@ -419,7 +418,12 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
     """Run inference for a single behaviour and return unified JSON."""
 
     if behavior not in MODELS:
-        return {"detected": False, "confidence": 0.0, "error": "unsupported_behavior"}
+        try:
+            # Suppress verbose weight-loading prints so only explicit logs reach stderr
+            with contextlib.redirect_stdout(_silent), contextlib.redirect_stderr(_silent):
+                MODELS[behavior] = load_model(behavior)
+        except Exception as exc:
+            return {"detected": False, "confidence": 0.0, "error": "model_load_failed", "details": str(exc)}
 
     model = MODELS[behavior].to(DEVICE)
 
