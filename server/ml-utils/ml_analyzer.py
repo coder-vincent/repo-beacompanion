@@ -859,20 +859,21 @@ def _analyze_foot_tapping_patterns(frames):
                 'analysis_type': 'no_full_body'
             }
         
-        avg_ankle_y = sum(rel_y_list) / len(rel_y_list) if rel_y_list else 0.0
-        
-        if avg_ankle_y < 0.75:
+        # Ensure we have enough frames where the entire body (shoulders, hips, ankles) is confidently visible.
+        if qualified_fullbody_frames < 3:
             print(
-                f"Average ankle y ({avg_ankle_y:.2f}) not in bottom quarter – likely noise; skipping foot analysis",
+                f"Only {qualified_fullbody_frames} full-body frames detected – skipping foot tapping analysis",
                 file=sys.stderr,
             )
             return {
                 'detected': False,
                 'confidence': 0.0,
-                'pattern': 'ankles_not_low',
+                'pattern': 'not_full_body',
                 'tap_count': 0,
-                'analysis_type': 'ankle_y_too_high'
+                'analysis_type': 'insufficient_fullbody'
             }
+        
+        avg_ankle_y = sum(rel_y_list) / len(rel_y_list) if rel_y_list else 0.0
         
         avg_shoulder_y = sum(shoulder_y_list) / len(shoulder_y_list)
         avg_hip_y = sum(hip_y_list) / len(hip_y_list) if hip_y_list else 0.0
