@@ -268,15 +268,34 @@ def _foot_crop(img: Image.Image) -> Image.Image | None:
 
 
 def _pose_xy(img: Image.Image) -> List[float] | None:
-    """Extract 33 (x,y) pose landmarks as flat list normalized to image size."""
+    """Extract 33 (x,y) pose landmarks as flat list normalized to image size.
+
+    Returns None if the **full body is not visible**, specifically when the key
+    lower-body landmarks (hips, knees and ankles) are missing or have very low
+    visibility (<0.3). This prevents false sit/stand detections when the camera
+    frame does not capture the whole body.
+    """
     rgb = np.array(img)
     res = _mp_pose.process(rgb)
     if not res.pose_landmarks:
         return None
+
+    # Key indices for lower-body visibility check (left/right hip, knee, ankle)
+    _LOWER_BODY_IDX = [23, 24, 25, 26, 27, 28]
+
+    # Require that at least 4 of the 6 lower-body landmarks have reasonable
+    # visibility (>0.3). This indicates that most of the body is in frame.
+    visible_lower_body = sum(
+        1 for i in _LOWER_BODY_IDX if res.pose_landmarks.landmark[i].visibility > 0.3
+    )
+    if visible_lower_body < 4:
+        # Not enough of the body in view – skip this frame
+        return None
+
     h, w, _ = rgb.shape
-    coords = []
+    coords: list[float] = []
     for lm in res.pose_landmarks.landmark:
-        coords.extend([lm.x, lm.y])  # already normalized
+        coords.extend([lm.x, lm.y])  # already normalized to [0,1]
     return coords
 
 
@@ -590,8 +609,28 @@ def _predict(behavior: str, data: Any) -> Dict[str, Any]:
                     print(f"Error processing rapid talking data: {e}", file=sys.stderr)
                     return {"detected": False, "confidence": 0.1}
             
-            seq_tensor = torch.tensor(seq, dtype=torch.float32).view(1, -1, 1).to(DEVICE)
-            prob = model(seq_tensor).squeeze().item()
+            # -----------------------------------------------------------
+            # Rule-based rapid talking detection (150+ WPM threshold)
+            #   • avg WPM < 150   → confidence = 0.1 (not detected)
+            #   • 150 ≤ avg WPM < 200 → confidence = 0.5 (detected)
+            #   • avg WPM ≥ 200  → confidence = 1.0 (strongly detected)
+            # -----------------------------------------------------------
+
+            avg_wpm = np.mean(seq)
+            print(f"Average WPM for rapid_talking: {avg_wpm:.1f}", file=sys.stderr)
+
+            if avg_wpm < 150:
+                prob = 0.1
+                detected = False
+            elif avg_wpm < 200:
+                prob = 0.5
+                detected = True
+            else:  # >= 200 WPM
+                prob = 1.0
+                detected = True
+
+            # Return immediately based on the rule-based threshold.
+            return {"detected": detected, "confidence": round(prob, 4), "avg_wpm": round(avg_wpm, 2)}
 
         else:
             prob = 0.0

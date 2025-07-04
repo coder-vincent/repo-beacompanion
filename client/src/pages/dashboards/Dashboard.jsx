@@ -821,12 +821,18 @@ const Dashboard = () => {
         await fetch(`${backendUrl}/api/session/${sessionId}/end`, {
           method: "PUT",
           headers: authTokenEnd
-            ? { Authorization: `Bearer ${authTokenEnd}` }
-            : {},
+            ? {
+                Authorization: `Bearer ${authTokenEnd}`,
+                "Content-Type": "application/json",
+              }
+            : { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify(sessionPayload),
         });
         setSessionId(null);
+
+        // Reload session history to reflect the updated status
+        await loadSessionHistory();
       }
 
       setTimer(0);
@@ -1307,10 +1313,18 @@ const Dashboard = () => {
       });
       const result = await response.json();
       backendDetected = Boolean(result.detected);
-      backendConfidence = parseFloat(result.confidence || 0);
-      if (Number.isNaN(backendConfidence)) {
-        backendConfidence = 0;
+
+      // Handle new backend response shape where confidence is an object
+      const backendConfObj = result.confidence;
+      if (backendConfObj && typeof backendConfObj === "object") {
+        backendConfidence = parseFloat(
+          backendConfObj.rapidTalking ?? backendConfObj.rapid_talking ?? 0
+        );
+      } else {
+        backendConfidence = parseFloat(result.confidence || 0);
       }
+
+      if (Number.isNaN(backendConfidence)) backendConfidence = 0;
 
       if (backendDetected) {
         setRapidTalkingStatus(
