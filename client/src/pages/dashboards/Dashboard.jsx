@@ -64,7 +64,7 @@ const Dashboard = () => {
   const [showSessionAnalyticsModal, setShowSessionAnalyticsModal] =
     useState(false);
   const [videoPlaying, setVideoPlaying] = useState(false);
-  const [timerIntervalId, setTimerIntervalId] = useState(null);
+  const timerIntervalIdRef = useRef(null);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
 
   const [currentBehaviors, setCurrentBehaviors] = useState({
@@ -93,6 +93,7 @@ const Dashboard = () => {
   const [motionThreshold] = useState(60);
 
   const analysisInFlightRef = useRef(0);
+  const monitoringRef = useRef(monitoring);
 
   const [, setRapidTalkingStatus] = useState("Ready");
   const wordCountRef = useRef(0);
@@ -108,6 +109,26 @@ const Dashboard = () => {
   const wpmListRef = useRef([]);
 
   const streamFailCountRef = useRef(0);
+
+  const animationFrameIdRef = useRef(null);
+
+  const abortControllersRef = useRef(new Set());
+
+  const fetchWithAbort = useCallback(async (url, options = {}) => {
+    const controller = new AbortController();
+    abortControllersRef.current.add(controller);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      abortControllersRef.current.delete(controller);
+      return response;
+    } catch (err) {
+      abortControllersRef.current.delete(controller);
+      throw err;
+    }
+  }, []);
 
   const loadSessionHistory = useCallback(async () => {
     if (!userData?.id) {
@@ -288,7 +309,7 @@ const Dashboard = () => {
 
         let response;
         for (let attempt = 0; attempt < 3; attempt++) {
-          response = await fetch(`${backendUrl}/api/ml/analyze`, {
+          response = await fetchWithAbort(`${backendUrl}/api/ml/analyze`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -338,6 +359,9 @@ const Dashboard = () => {
 
       return null;
     } catch (error) {
+      if (error.name === "AbortError") {
+        return null;
+      }
       const confidence = Math.random() * 0.3 + 0.1;
       return {
         behavior_type: behaviorType,
@@ -372,7 +396,7 @@ const Dashboard = () => {
       let analysisResults = [];
 
       try {
-        const response = await fetch(`${backendUrl}/api/ml/batch`, {
+        const response = await fetchWithAbort(`${backendUrl}/api/ml/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -386,7 +410,9 @@ const Dashboard = () => {
         const batchData = await response.json();
         analysisResults = batchData.results || [];
       } catch (error) {
-        console.error("Batch analysis error:", error);
+        if (error.name !== "AbortError") {
+          console.error("Batch analysis error:", error);
+        }
         analysisResults = behaviorsPayload.map((b) => ({
           behavior_type: b.type,
           detected: false,
@@ -532,8 +558,8 @@ const Dashboard = () => {
   useEffect(() => {
     const currentVideo = videoRef.current;
     return () => {
-      if (timerIntervalId) {
-        clearInterval(timerIntervalId);
+      if (timerIntervalIdRef.current) {
+        clearInterval(timerIntervalIdRef.current);
       }
       if (speechIntervalRef.current) {
         clearInterval(speechIntervalRef.current);
@@ -542,7 +568,7 @@ const Dashboard = () => {
         currentVideo.srcObject = null;
       }
     };
-  }, [timerIntervalId]);
+  }, []);
 
   useEffect(() => {
     const currentVideoRef = videoRef.current;
@@ -687,7 +713,7 @@ const Dashboard = () => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         setTimer(elapsed);
       }, 1000);
-      setTimerIntervalId(interval);
+      timerIntervalIdRef.current = interval;
 
       const startRealTimeAnalysis = () => {
         let lastAnalysisTime = 0;
@@ -726,12 +752,12 @@ const Dashboard = () => {
             }
           }
 
-          if (monitoring) {
-            requestAnimationFrame(analyzeFrame);
+          if (monitoringRef.current) {
+            animationFrameIdRef.current = requestAnimationFrame(analyzeFrame);
           }
         };
 
-        requestAnimationFrame(analyzeFrame);
+        animationFrameIdRef.current = requestAnimationFrame(analyzeFrame);
       };
 
       startRealTimeAnalysis();
@@ -764,9 +790,9 @@ const Dashboard = () => {
         setManualAnalysisIntervalId(null);
       }
 
-      if (timerIntervalId) {
-        clearInterval(timerIntervalId);
-        setTimerIntervalId(null);
+      if (timerIntervalIdRef.current) {
+        clearInterval(timerIntervalIdRef.current);
+        timerIntervalIdRef.current = null;
       }
 
       if (speechIntervalRef.current) {
@@ -804,7 +830,7 @@ const Dashboard = () => {
           alerts: alerts,
         };
 
-        await fetch(`${backendUrl}/api/session/${sessionId}/end`, {
+        await fetchWithAbort(`${backendUrl}/api/session/${sessionId}/end`, {
           method: "PUT",
           headers: authTokenEnd
             ? {
@@ -831,6 +857,16 @@ const Dashboard = () => {
       });
 
       toast.success("Monitoring stopped successfully");
+
+      // Cancel the animation loop so no further analysis runs after stopping.
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+
+      // Abort all pending network requests related to analysis.
+      abortControllersRef.current.forEach((controller) => controller.abort());
+      abortControllersRef.current.clear();
     } catch (error) {
       console.error("Error stopping monitoring:", error);
       toast.error("Error stopping monitoring");
@@ -955,7 +991,7 @@ const Dashboard = () => {
       let analysisResults = [];
 
       try {
-        const response = await fetch(`${backendUrl}/api/ml/batch`, {
+        const response = await fetchWithAbort(`${backendUrl}/api/ml/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -969,7 +1005,9 @@ const Dashboard = () => {
         const batchData = await response.json();
         analysisResults = batchData.results || [];
       } catch (error) {
-        console.error("Batch analysis error:", error);
+        if (error.name !== "AbortError") {
+          console.error("Batch analysis error:", error);
+        }
         analysisResults = behaviorsPayload.map((b) => ({
           behavior_type: b.type,
           detected: false,
@@ -1275,7 +1313,7 @@ const Dashboard = () => {
     let backendConfidence = 0;
 
     try {
-      const response = await fetch(`${backendUrl}/api/ml/analyze`, {
+      const response = await fetchWithAbort(`${backendUrl}/api/ml/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1432,6 +1470,10 @@ const Dashboard = () => {
     setCurrentWpm(0);
     setRapidTalkingStatus("Stopped");
   };
+
+  useEffect(() => {
+    monitoringRef.current = monitoring;
+  }, [monitoring]);
 
   return (
     <div className="min-h-screen flex flex-col">
