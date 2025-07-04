@@ -58,7 +58,7 @@ export const createMonitoringSession = async (req, res) => {
 export const endMonitoringSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { behaviorData, alerts } = req.body;
+    const { behaviorData, alerts } = req.body || {};
 
     console.log("🛑 Ending session:", sessionId);
     console.log("💾 Received behavior data:", behaviorData);
