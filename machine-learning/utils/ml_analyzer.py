@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportCallIssue=false, reportArgumentType=false
 """ML Analyzer script
 
 This script is invoked by the Node mlController using the following CLI:
@@ -264,6 +265,24 @@ def _foot_crop(img: Image.Image) -> Image.Image | None:
     crop = rgb[int(y_min): int(y_max), int(x_min): int(x_max)]
     if crop.size == 0:
         return None
+
+    # Heuristic: ensure the crop looks like bare feet (skin) rather than shoes
+    # Compute approximate skin-pixel ratio in the crop using YCrCb thresholds.
+    try:
+        import cv2
+        crop_bgr = cv2.cvtColor(crop, cv2.COLOR_RGB2BGR)
+        crop_ycc = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2YCrCb)
+        # cv2.inRange expects ndarray bounds for proper type checking
+        lower = np.array([0, 133, 77], dtype=np.uint8)
+        upper = np.array([255, 173, 127], dtype=np.uint8)
+        skin_mask = cv2.inRange(crop_ycc, lower, upper)
+        skin_ratio = float(cv2.countNonZero(skin_mask)) / float(skin_mask.size)
+        if skin_ratio < 0.25:  # Too little skin => likely shoes/slippers
+            return None
+    except Exception:
+        # If cv2 unavailable or error occurs, fall back to returning the crop
+        pass
+
     return Image.fromarray(crop)
 
 
@@ -285,9 +304,16 @@ def _pose_xy(img: Image.Image) -> List[float] | None:
 
     # Require that at least 4 of the 6 lower-body landmarks have reasonable
     # visibility (>0.3). This indicates that most of the body is in frame.
-    visible_lower_body = sum(
-        1 for i in _LOWER_BODY_IDX if res.pose_landmarks.landmark[i].visibility > 0.3
-    )
+    from typing import cast
+    lms_any = cast(Any, res.pose_landmarks.landmark)  # Treat landmark list as Any to avoid index type errors
+    visible_lower_body = 0
+    for idx in _LOWER_BODY_IDX:
+        try:
+            lm = cast(Any, lms_any)[idx]  # pyright: ignore[index]
+            if float(lm.visibility) > 0.3:
+                visible_lower_body += 1
+        except Exception:
+            pass
     if visible_lower_body < 4:
         # Not enough of the body in view – skip this frame
         return None
