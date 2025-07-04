@@ -1,5 +1,4 @@
 import express from "express";
-import userAuth from "../middleware/userAuth.js";
 import {
   analyzeBehavior,
   getModelStatus,
@@ -10,7 +9,6 @@ import {
 
 const mlRouter = express.Router();
 
-// Middleware for handling large ML data payloads
 const mlDataMiddleware = express.json({
   limit: "50mb",
   verify: (req, res, buf) => {
@@ -26,7 +24,6 @@ const mlDataMiddleware = express.json({
   },
 });
 
-// ML Analysis Routes (temporarily without authentication for demo)
 mlRouter.post("/analyze", mlDataMiddleware, analyzeBehavior);
 mlRouter.get("/status", getModelStatus);
 mlRouter.post("/batch", mlDataMiddleware, batchAnalysis);

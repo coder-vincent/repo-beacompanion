@@ -11,7 +11,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Create new monitoring session
 export const createMonitoringSession = async (req, res) => {
   try {
     const { userId, userName, startTime, status } = req.body;
@@ -54,15 +53,10 @@ export const createMonitoringSession = async (req, res) => {
   }
 };
 
-// End monitoring session
 export const endMonitoringSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { behaviorData, alerts } = req.body || {};
-
-    console.log("🛑 Ending session:", sessionId);
-    console.log("💾 Received behavior data:", behaviorData);
-    console.log("🚨 Received alerts:", alerts);
 
     if (!sessionId) {
       return res.status(400).json({
@@ -82,36 +76,31 @@ export const endMonitoringSession = async (req, res) => {
 
     const endTime = new Date().toISOString();
     const startTime = new Date(session.startTime);
-    const duration = Math.round((new Date(endTime) - startTime) / 1000); // Duration in seconds
+    const duration = Math.round((new Date(endTime) - startTime) / 1000);
 
-    // Prepare update data
     const updateData = {
       endTime,
       status: "completed",
       duration: formatDuration(duration),
     };
 
-    // Add behavior data if provided - avoid double JSON encoding
     if (behaviorData) {
-      // Only stringify if it's not already a string
       updateData.behaviorData =
         typeof behaviorData === "string"
           ? behaviorData
           : JSON.stringify(behaviorData);
-      console.log("✅ Saving behavior data to session");
+      console.log("Saving behavior data to session");
     }
 
-    // Add alerts if provided - avoid double JSON encoding
     if (alerts) {
-      // Only stringify if it's not already a string
       updateData.alerts =
         typeof alerts === "string" ? alerts : JSON.stringify(alerts);
-      console.log("✅ Saving alerts to session");
+      console.log("Saving alerts to session");
     }
 
     const updatedSession = await updateSession(sessionId, updateData);
 
-    console.log("🎯 Session successfully ended and data saved");
+    console.log("Session successfully ended and data saved");
 
     res.json({
       success: true,
@@ -127,7 +116,6 @@ export const endMonitoringSession = async (req, res) => {
   }
 };
 
-// Get session by ID
 export const getSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -155,7 +143,6 @@ export const getSession = async (req, res) => {
   }
 };
 
-// Get all sessions
 export const getAllMonitoringSessions = async (req, res) => {
   try {
     const sessions = await getAllSessions();
@@ -174,7 +161,6 @@ export const getAllMonitoringSessions = async (req, res) => {
   }
 };
 
-// Get sessions by user
 export const getUserSessions = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -202,7 +188,6 @@ export const getUserSessions = async (req, res) => {
   }
 };
 
-// Update session with behavior data
 export const updateSessionData = async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -244,7 +229,6 @@ export const updateSessionData = async (req, res) => {
   }
 };
 
-// Get session analytics
 export const getSessionAnalytics = async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -258,7 +242,6 @@ export const getSessionAnalytics = async (req, res) => {
       });
     }
 
-    // Calculate analytics from behavior data
     const analytics = calculateSessionAnalytics(session);
 
     res.json({
@@ -275,7 +258,6 @@ export const getSessionAnalytics = async (req, res) => {
   }
 };
 
-// Helper function to format duration
 const formatDuration = (seconds) => {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -286,10 +268,9 @@ const formatDuration = (seconds) => {
     .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 };
 
-// Helper function to calculate session analytics
 const calculateSessionAnalytics = (session) => {
-  console.log("🔍 Calculating analytics for session:", session.id);
-  console.log("📊 Session data:", {
+  console.log("Calculating analytics for session:", session.id);
+  console.log("Session data:", {
     behaviorData: session.behaviorData,
     alerts: session.alerts,
     alertsType: typeof session.alerts,
@@ -297,17 +278,14 @@ const calculateSessionAnalytics = (session) => {
     duration: session.duration,
   });
 
-  // Safely handle behaviorData - it could be JSON string, double-encoded JSON, object, or null
   let behaviorData = {};
   try {
     if (session.behaviorData) {
       let data = session.behaviorData;
 
-      // If it's a string, try to parse it
       if (typeof data === "string") {
         data = JSON.parse(data);
 
-        // Check if it's still a string (double-encoded)
         if (typeof data === "string") {
           data = JSON.parse(data);
         }
@@ -317,30 +295,27 @@ const calculateSessionAnalytics = (session) => {
         behaviorData = data;
       } else {
         console.warn(
-          "⚠️ BehaviorData is not a valid object after parsing:",
+          "BehaviorData is not a valid object after parsing:",
           typeof data
         );
         behaviorData = {};
       }
     }
   } catch (error) {
-    console.error("❌ Error parsing behaviorData JSON:", error);
+    console.error("Error parsing behaviorData JSON:", error);
     behaviorData = {};
   }
 
-  console.log("✅ Processed behaviorData:", behaviorData);
+  console.log("Processed behaviorData:", behaviorData);
 
-  // Safely handle alerts - it could be JSON string, double-encoded JSON, array, or null
   let alerts = [];
   try {
     if (session.alerts) {
       let data = session.alerts;
 
-      // If it's a string, try to parse it
       if (typeof data === "string") {
         data = JSON.parse(data);
 
-        // Check if it's still a string (double-encoded)
         if (typeof data === "string") {
           data = JSON.parse(data);
         }
@@ -349,19 +324,16 @@ const calculateSessionAnalytics = (session) => {
       if (Array.isArray(data)) {
         alerts = data;
       } else {
-        console.warn(
-          "⚠️ Alerts is not a valid array after parsing:",
-          typeof data
-        );
+        console.warn("Alerts is not a valid array after parsing:", typeof data);
         alerts = [];
       }
     }
   } catch (error) {
-    console.error("❌ Error parsing alerts JSON:", error);
+    console.error("Error parsing alerts JSON:", error);
     alerts = [];
   }
 
-  console.log("✅ Processed alerts:", alerts);
+  console.log("Processed alerts:", alerts);
 
   const analytics = {
     totalBehaviors: 0,
@@ -378,7 +350,6 @@ const calculateSessionAnalytics = (session) => {
     },
   };
 
-  // Calculate behavior statistics with improved data handling
   Object.entries(behaviorData).forEach(([behavior, data]) => {
     const count = data.count || 0;
     const totalConfidence = data.totalConfidence || 0;
@@ -389,7 +360,7 @@ const calculateSessionAnalytics = (session) => {
       count: count,
       totalConfidence: totalConfidence,
       averageConfidence: avgConfidence,
-      severity: avgConfidence, // Use average confidence as severity
+      severity: avgConfidence,
       lastDetection: data.lastDetection,
       behaviorType: behavior
         .replace("_", " ")
@@ -397,7 +368,6 @@ const calculateSessionAnalytics = (session) => {
     };
   });
 
-  // Calculate alert statistics with better handling
   if (Array.isArray(alerts)) {
     alerts.forEach((alert) => {
       if (alert && alert.confidence && alert.confidence > 0.7) {
@@ -406,7 +376,6 @@ const calculateSessionAnalytics = (session) => {
     });
   }
 
-  // Calculate average confidence across all behaviors
   const confidenceValues = Object.values(analytics.behaviorBreakdown)
     .map((b) => b.averageConfidence)
     .filter((c) => c > 0);
@@ -414,14 +383,13 @@ const calculateSessionAnalytics = (session) => {
   if (confidenceValues.length > 0) {
     analytics.averageConfidence =
       confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length;
-    analytics.averageSeverity = analytics.averageConfidence; // Use confidence as severity
+    analytics.averageSeverity = analytics.averageConfidence;
   }
 
-  console.log("📈 Final analytics:", analytics);
+  console.log("Final analytics:", analytics);
   return analytics;
 };
 
-// Save monitoring result (dummy implementation)
 export const monitorAndSaveResult = async (req, res) => {
   try {
     const { sessionId, result } = req.body;
@@ -432,7 +400,6 @@ export const monitorAndSaveResult = async (req, res) => {
       });
     }
 
-    // Get the session
     const session = await getSessionById(sessionId);
     if (!session) {
       return res.status(404).json({
@@ -441,7 +408,6 @@ export const monitorAndSaveResult = async (req, res) => {
       });
     }
 
-    // Update the session's behaviorData (merge new result)
     const updatedBehaviorData = {
       ...(session.behaviorData || {}),
       ...result,

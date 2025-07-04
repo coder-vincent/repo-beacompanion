@@ -13,10 +13,8 @@ import {
 
 const sessionRouter = express.Router();
 
-// Place /monitor route BEFORE any parameterized routes
 sessionRouter.post("/monitor", monitorAndSaveResult);
 
-// Session Management Routes
 sessionRouter.post("/", userAuth, createMonitoringSession);
 sessionRouter.put("/:sessionId/end", userAuth, endMonitoringSession);
 sessionRouter.get("/:sessionId", userAuth, getSession);

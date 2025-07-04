@@ -530,17 +530,13 @@ const Dashboard = () => {
   }, [userData?.id, loadSessionHistory]);
 
   useEffect(() => {
-    // Capture current values to avoid stale refs in cleanup and satisfy eslint rules
     const currentVideo = videoRef.current;
-    const currentSpeechInterval = speechIntervalRef.current;
-    const currentTimerId = timerIntervalId;
-
     return () => {
-      if (currentTimerId) {
-        clearInterval(currentTimerId);
+      if (timerIntervalId) {
+        clearInterval(timerIntervalId);
       }
-      if (currentSpeechInterval) {
-        clearInterval(currentSpeechInterval);
+      if (speechIntervalRef.current) {
+        clearInterval(speechIntervalRef.current);
       }
       if (currentVideo) {
         currentVideo.srcObject = null;

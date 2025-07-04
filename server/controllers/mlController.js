@@ -7,10 +7,8 @@ import os from "os";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Store recent detections to prevent unrealistic simultaneous behaviors
 const recentDetections = new Map();
 
-// Check if Python is available once at startup
 let pythonAvailable = true;
 try {
   execSync("python --version", { stdio: "ignore" });
@@ -20,33 +18,29 @@ try {
   } catch {
     pythonAvailable = false;
     console.warn(
-      "[WARN] Python binary not found – ML analysis will fall back to simulation"
+      "Python binary not found – ML analysis will fall back to simulation"
     );
   }
 }
 
-// Allow only 1 concurrent analysis by default to reduce memory usage.
-// You can override this via the MAX_CONCURRENT_ANALYSES env var.
 let activeAnalyses = 0;
 const MAX_CONCURRENT_ANALYSES = parseInt(
   process.env.MAX_CONCURRENT_ANALYSES || "1",
   10
 );
 
-// Track analysis start times to detect stuck analyses
 const analysisStartTimes = new Map();
 
-// Auto-reset stuck analysis counter every 10 minutes
 setInterval(() => {
   const now = Date.now();
-  const stuckThreshold = 10 * 60 * 1000; // 10 minutes
+  const stuckThreshold = 10 * 60 * 1000;
 
   if (activeAnalyses > 0) {
     let hasStuckAnalyses = false;
     for (const [analysisId, startTime] of analysisStartTimes.entries()) {
       if (now - startTime > stuckThreshold) {
         console.warn(
-          `🔄 Auto-reset: Found stuck analysis ${analysisId} running for ${Math.floor(
+          `Auto-reset: Found stuck analysis ${analysisId} running for ${Math.floor(
             (now - startTime) / 60000
           )} minutes`
         );
@@ -57,15 +51,14 @@ setInterval(() => {
 
     if (hasStuckAnalyses || analysisStartTimes.size === 0) {
       console.warn(
-        `🔄 Auto-reset: Resetting stuck analysis counter from ${activeAnalyses} to 0`
+        `Auto-reset: Resetting stuck analysis counter from ${activeAnalyses} to 0`
       );
       activeAnalyses = 0;
       analysisStartTimes.clear();
     }
   }
-}, 5 * 60 * 1000); // Check every 5 minutes
+}, 5 * 60 * 1000);
 
-// Utility to safely release the analysis slot only once
 const releaseAnalysisSlot = (analysisId = null) => {
   if (activeAnalyses > 0) {
     activeAnalyses -= 1;
@@ -73,31 +66,24 @@ const releaseAnalysisSlot = (analysisId = null) => {
       const duration = Date.now() - analysisStartTimes.get(analysisId);
       analysisStartTimes.delete(analysisId);
       console.log(
-        `✅ Released ML analysis slot ${analysisId} after ${Math.floor(
+        `Released ML analysis slot ${analysisId} after ${Math.floor(
           duration / 1000
         )}s (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
       );
     } else {
       console.log(
-        `✅ Released ML analysis slot (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+        `Released ML analysis slot (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
       );
     }
   } else {
-    console.warn(`⚠️ Attempted to release analysis slot but none were active`);
+    console.warn(`Attempted to release analysis slot but none were active`);
   }
 };
 
-/**
- * Apply minimal intelligent filtering to reduce false positives while preserving real detections
- */
 function applyIntelligentFiltering(result, behaviorType) {
-  // Only apply very minimal filtering - the Python ML is already well-tuned
-
-  // If this is a fallback result, apply minimal filtering
   if (result.fallback) {
     console.log(`[FILTER] Minimal fallback filtering for ${behaviorType}`);
 
-    // Only filter out extremely low confidence fallback detections
     if (result.confidence < 0.1) {
       result.detected = false;
       console.log(
@@ -107,16 +93,12 @@ function applyIntelligentFiltering(result, behaviorType) {
     return result;
   }
 
-  // For hand tapping, trust the Python ML analysis
   if (behaviorType === "tapping_hands" && result.detected) {
-    // Trust pattern analysis results completely
     if (result.analysis_type === "pattern_recognition") {
       console.log(
         `[PATTERN] Hand tapping pattern detected: ${result.pattern} (confidence: ${result.confidence})`
       );
-      // No filtering needed - pattern analysis is already conservative
     } else {
-      // For PyTorch detection, only filter extremely low confidence
       if (result.confidence < 0.25) {
         console.log(
           `[FILTER] Hand tapping confidence too low: ${result.confidence} < 0.25`
@@ -127,7 +109,6 @@ function applyIntelligentFiltering(result, behaviorType) {
     }
   }
 
-  // For sit/stand, only filter very low confidence
   if (behaviorType === "sit_stand" && result.detected) {
     if (result.confidence < 0.2) {
       console.log(
@@ -138,7 +119,6 @@ function applyIntelligentFiltering(result, behaviorType) {
     }
   }
 
-  // For foot tapping, be even more lenient
   if (behaviorType === "tapping_feet" && result.detected) {
     if (result.confidence < 0.15) {
       console.log(
@@ -148,7 +128,6 @@ function applyIntelligentFiltering(result, behaviorType) {
     }
   }
 
-  // For eye gaze, minimal filtering
   if (behaviorType === "eye_gaze" && result.detected) {
     if (result.confidence < 0.2) {
       console.log(
@@ -158,7 +137,6 @@ function applyIntelligentFiltering(result, behaviorType) {
     }
   }
 
-  // For rapid talking, minimal filtering
   if (behaviorType === "rapid_talking" && result.detected) {
     if (result.confidence < 0.2) {
       console.log(
@@ -168,18 +146,15 @@ function applyIntelligentFiltering(result, behaviorType) {
     }
   }
 
-  // Much more relaxed simultaneous detection checking
   const now = Date.now();
-  const timeWindow = 5000; // Reduced to 5 seconds
+  const timeWindow = 5000;
 
-  // Clean old detections
   for (const [behavior, timestamp] of recentDetections.entries()) {
     if (now - timestamp > timeWindow) {
       recentDetections.delete(behavior);
     }
   }
 
-  // Only filter if we have 4+ simultaneous detections (very unrealistic)
   if (result.detected) {
     const recentCount = recentDetections.size;
 
@@ -189,7 +164,6 @@ function applyIntelligentFiltering(result, behaviorType) {
       );
       result.confidence = Math.max(0.2, result.confidence * 0.8);
 
-      // Only mark as false positive if confidence drops below 0.15
       if (result.confidence < 0.15) {
         result.detected = false;
         console.log(
@@ -198,7 +172,6 @@ function applyIntelligentFiltering(result, behaviorType) {
       }
     }
 
-    // Record detection if still valid
     if (result.detected) {
       recentDetections.set(behaviorType, now);
     }
@@ -207,12 +180,10 @@ function applyIntelligentFiltering(result, behaviorType) {
   return result;
 }
 
-// ML Analysis Controller
 export const analyzeBehavior = async (req, res) => {
-  // Check concurrency limit to avoid OOM/502 errors
   if (activeAnalyses >= MAX_CONCURRENT_ANALYSES) {
     console.warn(
-      `🚫 Rate limit: ${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} concurrent analyses running`
+      `Rate limit: ${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} concurrent analyses running`
     );
     return res.status(429).json({
       success: false,
@@ -226,11 +197,10 @@ export const analyzeBehavior = async (req, res) => {
     .substr(2, 9)}`;
   analysisStartTimes.set(analysisId, Date.now());
   console.log(
-    `🔄 Starting ML analysis ${analysisId} (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
+    `Starting ML analysis ${analysisId} (${activeAnalyses}/${MAX_CONCURRENT_ANALYSES} active)`
   );
   try {
-    // FORCE ENABLE REAL ML - Python backend is working perfectly
-    const shouldUseSimulation = false; // Always use real ML
+    const shouldUseSimulation = false;
 
     console.log("🔧 FORCED ML ENABLED - Using real Python ML backend");
     console.log(
@@ -243,29 +213,26 @@ export const analyzeBehavior = async (req, res) => {
     );
 
     if (shouldUseSimulation) {
-      // Fallback to simulation only if ML is explicitly disabled
       const behaviorType =
         req.body.behaviorType || req.body.behavior_type || "unknown";
 
       const mockAnalysis = {
         behavior_type: behaviorType,
-        confidence: Math.random() * 0.3, // Low confidence simulation
-        detected: Math.random() > 0.8, // Occasionally detect something
+        confidence: Math.random() * 0.3,
+        detected: Math.random() > 0.8,
         timestamp: new Date().toISOString(),
         message: "Simulated ML analysis (Python ML disabled in production)",
       };
 
-      releaseAnalysisSlot(analysisId); // Ensure slot is released
+      releaseAnalysisSlot(analysisId);
       return res.json({
         success: true,
         analysis: mockAnalysis,
       });
     }
 
-    // Determine behavior type
     const behaviorType = req.body.behaviorType || req.body.behavior_type;
 
-    // If Python missing, force simulation so container stays healthy
     if (!pythonAvailable) {
       const mockAnalysis = {
         behavior_type: behaviorType,
@@ -274,20 +241,18 @@ export const analyzeBehavior = async (req, res) => {
         fallback: true,
         message: "Python not available – returning simulation result",
       };
-      releaseAnalysisSlot(analysisId); // Ensure slot is released
+      releaseAnalysisSlot(analysisId);
       return res.json({ success: true, analysis: mockAnalysis });
     }
 
-    // Try real ML analysis
     const data =
       req.body.data !== undefined ? req.body.data : req.body.payload || null;
     const frame = req.body.frame || req.body.Frame || null;
     const frame_sequence =
       req.body.frame_sequence || req.body.frameSequence || null;
 
-    // Validate request body size – keep well under 512 MB Render free limit
     const contentLength = req.headers["content-length"];
-    const MAX_REQUEST_BYTES = 15 * 1024 * 1024; // 15 MB
+    const MAX_REQUEST_BYTES = 15 * 1024 * 1024;
     if (contentLength && parseInt(contentLength) > MAX_REQUEST_BYTES) {
       return res.status(413).json({
         success: false,
@@ -297,7 +262,6 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Extra guard: if frame_sequence array is enormous, reject early to avoid OOM
     if (Array.isArray(frame_sequence) && frame_sequence.length > 40) {
       return res.status(413).json({
         success: false,
@@ -319,7 +283,6 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Validate behavior type
     const validTypes = [
       "eye_gaze",
       "sit_stand",
@@ -334,10 +297,8 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Use data if present, otherwise use frame or frame_sequence
     const payload = data || frame || frame_sequence;
 
-    // Validate payload size
     const payloadSize = JSON.stringify(payload).length;
     if (payloadSize > 50 * 1024 * 1024) {
       return res.status(413).json({
@@ -346,14 +307,11 @@ export const analyzeBehavior = async (req, res) => {
       });
     }
 
-    // Create a temporary file to store the data
     const tempFile = path.join(os.tmpdir(), `ml_data_${Date.now()}.json`);
 
     try {
-      // Format data for the specific behavior type
       let formattedData;
       if (frame || frame_sequence) {
-        // Sequence-based behaviors need frame_sequence, others can use single frame
         const sequenceBehaviors = [
           "eye_gaze",
           "tapping_hands",
@@ -362,21 +320,18 @@ export const analyzeBehavior = async (req, res) => {
         ];
 
         if (sequenceBehaviors.includes(behaviorType)) {
-          // Use frame_sequence for behaviors that need multiple frames
           const frames = frame_sequence || (frame ? [frame] : []);
           console.log(`Sending ${frames.length} frames for ${behaviorType}`);
           formattedData = {
             [behaviorType]: frames,
           };
         } else {
-          // Use single frame or first frame of sequence for other behaviors
           const singleFrame = frame || (frame_sequence && frame_sequence[0]);
           formattedData = {
             [behaviorType]: singleFrame,
           };
         }
       } else if (data) {
-        // If we have structured data, format it for the specific behavior type
         formattedData = {
           [behaviorType]: data,
         };
@@ -384,11 +339,9 @@ export const analyzeBehavior = async (req, res) => {
         throw new Error("No data, frame, or frame_sequence provided");
       }
 
-      // Write data to temporary file
       fs.writeFileSync(tempFile, JSON.stringify(formattedData));
 
-      // Debug logging
-      console.log("🔍 ML Analysis Debug:");
+      console.log("ML Analysis Debug:");
       console.log("- Behavior Type:", behaviorType);
       console.log("- Temp File:", tempFile);
       console.log("- Python Script:", pythonScript);
@@ -401,9 +354,8 @@ export const analyzeBehavior = async (req, res) => {
         "MB"
       );
 
-      // SPECIAL DEBUG for rapid_talking
       if (behaviorType === "rapid_talking") {
-        console.log("🎯 RAPID TALKING SPECIFIC DEBUG:");
+        console.log("RAPID TALKING SPECIFIC DEBUG:");
         console.log("- Raw data received:", data);
         console.log("- Formatted data for Python:", formattedData);
         console.log(
@@ -416,7 +368,6 @@ export const analyzeBehavior = async (req, res) => {
         );
       }
 
-      // Use command line arguments for behavior type and file path
       const args = [
         pythonScript,
         "--data",
@@ -426,7 +377,7 @@ export const analyzeBehavior = async (req, res) => {
       ];
       console.log("- Python Args:", args);
 
-      console.log("🔍 Attempting to start Python process:");
+      console.log("Attempting to start Python process:");
       console.log("- Working Directory:", workingDir);
       console.log("- Python Script Path:", pythonScript);
       console.log("- Args:", args);
@@ -434,10 +385,9 @@ export const analyzeBehavior = async (req, res) => {
       const pythonProcess = spawn("python", args, {
         cwd: workingDir,
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env }, // Inherit environment
+        env: { ...process.env },
       });
 
-      // Set a timeout for the Python process (5 minutes)
       const timeout = setTimeout(() => {
         pythonProcess.kill("SIGTERM");
         releaseAnalysisSlot(analysisId);
@@ -447,16 +397,10 @@ export const analyzeBehavior = async (req, res) => {
           message:
             "ML analysis timed out. Please try with smaller data or contact support.",
         });
-      }, 5 * 60 * 1000); // 5 minutes
+      }, 5 * 60 * 1000);
 
       let result = "";
       let error = "";
-
-      // --------------------------------------------------------------------
-      // Filter Python stderr — drop repetitive Mediapipe / TFLite INFO &
-      // WARNING spam so the server logs remain readable while preserving
-      // genuine errors.
-      // --------------------------------------------------------------------
 
       const noisePatterns = [
         /INFO: Created TensorFlow Lite XNNPACK delegate/i,
@@ -471,9 +415,9 @@ export const analyzeBehavior = async (req, res) => {
 
       pythonProcess.stderr.on("data", (data) => {
         const text = data.toString();
-        // Discard if matches any known noise pattern
+
         if (noisePatterns.some((rx) => rx.test(text))) {
-          return; // Skip logging & accumulation
+          return;
         }
 
         error += text;
@@ -481,24 +425,20 @@ export const analyzeBehavior = async (req, res) => {
       });
 
       pythonProcess.on("close", (code) => {
-        // Clear the timeout
         clearTimeout(timeout);
 
-        // Clean up temporary file
         try {
           fs.unlinkSync(tempFile);
         } catch (cleanupError) {
           console.error("Failed to cleanup temp file:", cleanupError);
         }
 
-        // Debug logging
-        console.log(`🐍 Python process exited with code: ${code}`);
-        console.log(`📤 Python stdout: "${result}"`);
-        console.log(`⚠️ Python stderr: "${error}"`);
+        console.log(`Python process exited with code: ${code}`);
+        console.log(`Python stdout: "${result}"`);
+        console.log(`Python stderr: "${error}"`);
 
-        // SPECIAL DEBUG for rapid_talking
         if (behaviorType === "rapid_talking") {
-          console.log("🎯 RAPID TALKING PYTHON RESULT:");
+          console.log("RAPID TALKING PYTHON RESULT:");
           console.log("- Exit code:", code);
           console.log("- Raw stdout:", result);
           console.log("- Any errors:", error);
@@ -506,8 +446,6 @@ export const analyzeBehavior = async (req, res) => {
 
         if (code !== 0) {
           console.error(`Python script exited with code ${code}:`, error);
-
-          // If we have output despite non-zero exit, try to parse it
           if (result.trim()) {
             console.log(
               "Attempting to parse result despite non-zero exit code..."
@@ -522,7 +460,7 @@ export const analyzeBehavior = async (req, res) => {
                 "Successfully parsed result despite error:",
                 analysisResult
               );
-              releaseAnalysisSlot(analysisId); // Release slot before return
+              releaseAnalysisSlot(analysisId);
               return res.json({
                 success: true,
                 analysis: analysisResult,
@@ -532,7 +470,6 @@ export const analyzeBehavior = async (req, res) => {
             }
           }
 
-          // Fallback to simulation
           console.log(
             "Falling back to simulated ML response due to Python error..."
           );
@@ -545,7 +482,7 @@ export const analyzeBehavior = async (req, res) => {
             fallback: true,
           };
 
-          releaseAnalysisSlot(analysisId); // Release slot before return
+          releaseAnalysisSlot(analysisId);
           return res.json({
             success: true,
             analysis: mockAnalysis,
@@ -557,7 +494,7 @@ export const analyzeBehavior = async (req, res) => {
             console.error(
               "Python script returned empty result, using fallback"
             );
-            // Fallback instead of error
+
             const mockAnalysis = {
               behavior_type: behaviorType,
               confidence: Math.random() * 0.3 + 0.1,
@@ -567,7 +504,7 @@ export const analyzeBehavior = async (req, res) => {
               fallback: true,
             };
 
-            releaseAnalysisSlot(analysisId); // Release slot before return
+            releaseAnalysisSlot(analysisId);
             return res.json({
               success: true,
               analysis: mockAnalysis,
@@ -576,13 +513,11 @@ export const analyzeBehavior = async (req, res) => {
 
           let analysisResult = JSON.parse(result);
 
-          // Ensure behavior_type key is present for frontend compatibility
           analysisResult = {
             behavior_type: behaviorType,
             ...analysisResult,
           };
 
-          // Apply intelligent filtering to reduce false positives
           analysisResult = applyIntelligentFiltering(
             analysisResult,
             behaviorType
@@ -590,7 +525,6 @@ export const analyzeBehavior = async (req, res) => {
 
           console.log("Parsed analysis result:", analysisResult);
 
-          // Convert to new response format that matches client expectations
           const detectionResults = {
             eyeGaze: behaviorType === "eye_gaze" && analysisResult.detected,
             handTapping:
@@ -602,7 +536,6 @@ export const analyzeBehavior = async (req, res) => {
               behaviorType === "rapid_talking" && analysisResult.detected,
           };
 
-          // Release analysis slot before sending response
           releaseAnalysisSlot(analysisId);
 
           res.json({
@@ -636,7 +569,6 @@ export const analyzeBehavior = async (req, res) => {
           console.error("JSON parse error:", parseError);
           console.error("Raw result:", result);
 
-          // Fallback instead of error
           console.log(
             "Falling back to simulated response due to parse error..."
           );
@@ -649,7 +581,7 @@ export const analyzeBehavior = async (req, res) => {
             fallback: true,
           };
 
-          releaseAnalysisSlot(analysisId); // Release slot before return
+          releaseAnalysisSlot(analysisId);
           res.json({
             success: true,
             analysis: mockAnalysis,
@@ -658,10 +590,8 @@ export const analyzeBehavior = async (req, res) => {
       });
 
       pythonProcess.on("error", (err) => {
-        // Clear the timeout
         clearTimeout(timeout);
 
-        // Clean up temporary file on error
         try {
           fs.unlinkSync(tempFile);
         } catch (cleanupError) {
@@ -671,13 +601,11 @@ export const analyzeBehavior = async (req, res) => {
         console.error("Failed to start Python process:", err);
         console.log("Falling back to simulated ML response...");
 
-        // Check if response already sent
         if (res.headersSent) {
           console.log("Response already sent, skipping fallback");
           return;
         }
 
-        // Graceful fallback to simulation
         const behaviorType =
           req.body.behaviorType || req.body.behavior_type || "unknown";
         const mockAnalysis = {
@@ -688,7 +616,7 @@ export const analyzeBehavior = async (req, res) => {
           message: "Simulated ML analysis (Python ML unavailable)",
         };
 
-        releaseAnalysisSlot(analysisId); // Release slot before return
+        releaseAnalysisSlot(analysisId);
         res.json({
           success: true,
           analysis: mockAnalysis,
@@ -714,11 +642,10 @@ export const analyzeBehavior = async (req, res) => {
   }
 };
 
-// Reset analysis counter (for debugging stuck states)
 export const resetAnalysisCounter = async (req, res) => {
   const previousCount = activeAnalyses;
   activeAnalyses = 0;
-  console.log(`🔄 Reset analysis counter from ${previousCount} to 0`);
+  console.log(`Reset analysis counter from ${previousCount} to 0`);
   res.json({
     success: true,
     message: `Analysis counter reset from ${previousCount} to 0`,
@@ -728,11 +655,9 @@ export const resetAnalysisCounter = async (req, res) => {
   });
 };
 
-// Get ML model status
 export const getModelStatus = async (req, res) => {
   try {
-    // FORCE ENABLE REAL ML - Python backend is working perfectly
-    const shouldUseSimulation = false; // Always use real ML
+    const shouldUseSimulation = false;
 
     if (shouldUseSimulation) {
       return res.json({
@@ -752,7 +677,6 @@ export const getModelStatus = async (req, res) => {
       "../../machine-learning/utils/model_status.py"
     );
 
-    // Set the working directory to the machine-learning folder
     const workingDir = path.join(__dirname, "../../machine-learning");
 
     const pythonProcess = spawn("python", [pythonScript], {
@@ -814,14 +738,11 @@ export const getModelStatus = async (req, res) => {
   }
 };
 
-// Batch analysis for multiple behaviors
 export const batchAnalysis = async (req, res) => {
   try {
-    // Try real ML first, only simulate if explicitly disabled
-    const shouldUseSimulation = false; // FORCE REAL ML
+    const shouldUseSimulation = false;
 
     if (shouldUseSimulation) {
-      // Fallback to simulation only if ML is explicitly disabled
       const { behaviors } = req.body;
 
       if (!behaviors || !Array.isArray(behaviors)) {
@@ -831,13 +752,12 @@ export const batchAnalysis = async (req, res) => {
         });
       }
 
-      // Generate simulated results for each behavior
       const simulatedResults = behaviors.map((behavior) => {
         const behaviorType = behavior.type || "unknown";
         return {
           behavior_type: behaviorType,
-          confidence: Math.random() * 0.3, // Low confidence simulation
-          detected: Math.random() > 0.8, // Occasionally detect something
+          confidence: Math.random() * 0.3,
+          detected: Math.random() > 0.8,
           timestamp: new Date().toISOString(),
           message: "Simulated ML analysis (Python ML disabled in production)",
         };
@@ -849,7 +769,6 @@ export const batchAnalysis = async (req, res) => {
       });
     }
 
-    // Try real batch ML analysis
     const { behaviors } = req.body;
 
     if (!behaviors || !Array.isArray(behaviors)) {
@@ -859,11 +778,9 @@ export const batchAnalysis = async (req, res) => {
       });
     }
 
-    // Create a temporary file to store the behaviors data
     const tempFile = path.join(os.tmpdir(), `batch_data_${Date.now()}.json`);
 
     try {
-      // Write behaviors data to temporary file
       fs.writeFileSync(tempFile, JSON.stringify(behaviors));
 
       const pythonScript = path.join(
@@ -871,7 +788,6 @@ export const batchAnalysis = async (req, res) => {
         "../../machine-learning/utils/batch_analyzer.py"
       );
 
-      // Set the working directory to the machine-learning folder
       const workingDir = path.join(__dirname, "../../machine-learning");
 
       const pythonProcess = spawn("python", [pythonScript, tempFile], {
@@ -891,7 +807,6 @@ export const batchAnalysis = async (req, res) => {
       });
 
       pythonProcess.on("close", (code) => {
-        // Clean up temporary file
         try {
           fs.unlinkSync(tempFile);
         } catch (cleanupError) {
@@ -909,10 +824,6 @@ export const batchAnalysis = async (req, res) => {
 
         try {
           const batchResult = JSON.parse(result);
-
-          // `batchResult` looks like { success: bool, results: [...], total_analyzed: n }
-          // For consistency with /api/ml/analyze, flatten it so the client gets
-          // { success, results: [...], total_analyzed }
           res.json({
             success: Boolean(batchResult.success),
             results: batchResult.results || [],
@@ -928,7 +839,6 @@ export const batchAnalysis = async (req, res) => {
       });
 
       pythonProcess.on("error", (err) => {
-        // Clean up temporary file on error
         try {
           fs.unlinkSync(tempFile);
         } catch (cleanupError) {
@@ -960,7 +870,6 @@ export const batchAnalysis = async (req, res) => {
   }
 };
 
-// Evaluate labeled dataset and return accuracy metrics
 export const evaluateDataset = async (req, res) => {
   try {
     const { behaviors } = req.body;
@@ -972,7 +881,6 @@ export const evaluateDataset = async (req, res) => {
       });
     }
 
-    // Separate labels; batch_analyzer only needs type/data
     const unlabeled = behaviors.map((b) => ({ type: b.type, data: b.data }));
 
     const tempFile = path.join(os.tmpdir(), `eval_data_${Date.now()}.json`);
@@ -1050,9 +958,7 @@ export const evaluateDataset = async (req, res) => {
 
 export const analyzeImage = async (req, res) => {
   try {
-    // Handle production environment with simulated responses
     if (process.env.NODE_ENV === "production") {
-      // Simulate some behavior detection
       const simulatedBehaviors = [
         {
           type: "eye_gaze",
@@ -1092,7 +998,6 @@ export const analyzeImage = async (req, res) => {
       });
     }
 
-    // Use the Python script in ml-utils directory
     const scriptPath = path.join(
       __dirname,
       "..",
@@ -1105,23 +1010,21 @@ export const analyzeImage = async (req, res) => {
 
     const pythonCommand = `python "${scriptPath}" --analysis-type ${analysisType}`;
 
-    // Execute the Python script with the image data
     const result = execSync(pythonCommand, {
       input: JSON.stringify({ imageData }),
       encoding: "utf-8",
-      timeout: 30000, // 30 second timeout
+      timeout: 30000,
       cwd: workingDir,
     });
 
     const analysis = JSON.parse(result);
 
-    // BALANCED DETECTION THRESHOLDS - sensitive but accurate
     const detectionResults = {
-      eyeGaze: analysis.eye_gaze > 0.3, // Reasonable threshold
-      handTapping: analysis.hand_tapping > 0.25, // More conservative
-      footTapping: analysis.foot_tapping > 0.25, // More conservative
-      sitStand: analysis.sit_stand > 0.3, // Reasonable threshold
-      rapidTalking: analysis.rapid_talking > 0.25, // More conservative
+      eyeGaze: analysis.eye_gaze > 0.3,
+      handTapping: analysis.hand_tapping > 0.25,
+      footTapping: analysis.foot_tapping > 0.25,
+      sitStand: analysis.sit_stand > 0.3,
+      rapidTalking: analysis.rapid_talking > 0.25,
     };
 
     res.json({
@@ -1154,7 +1057,6 @@ export const analyzeImage = async (req, res) => {
 
 export const batchAnalyze = async (req, res) => {
   try {
-    // Temporary: Disable ML in production until Python dependencies are fixed
     if (process.env.NODE_ENV === "production") {
       return res.json({
         success: true,
@@ -1172,7 +1074,6 @@ export const batchAnalyze = async (req, res) => {
       });
     }
 
-    // Use the Python script in machine-learning directory
     const scriptPath = path.join(
       __dirname,
       "..",
@@ -1186,11 +1087,10 @@ export const batchAnalyze = async (req, res) => {
 
     const workingDir = path.join(__dirname, "../../machine-learning/utils");
 
-    // Execute the Python script with batch data
     const result = execSync(pythonCommand, {
       input: JSON.stringify({ images }),
       encoding: "utf-8",
-      timeout: 60000, // 60 second timeout for batch processing
+      timeout: 60000,
       cwd: workingDir,
     });
 

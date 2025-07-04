@@ -9,7 +9,6 @@ import {
 import "dotenv/config";
 import transporter from "../config/nodemailer.js";
 
-// Get JWT secret with fallback
 const getJwtSecret = () => {
   return (
     process.env.JWT_SECRET ||
@@ -47,12 +46,11 @@ export const register = async (req, res) => {
 
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProduction, // HTTPS required in production
-      sameSite: isProduction ? "none" : "lax", // "none" for cross-domain, "lax" for local
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Send email if SMTP is configured
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       try {
         const mailOptions = {
@@ -76,7 +74,6 @@ export const register = async (req, res) => {
         await transporter.sendMail(mailOptions);
       } catch (emailError) {
         console.error("Email sending failed:", emailError);
-        // Don't fail registration if email fails
       }
     }
 
@@ -115,9 +112,8 @@ export const login = async (req, res) => {
       expiresIn: "7d",
     });
 
-    // Create new session
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
+    expiresAt.setDate(expiresAt.getDate() + 7);
 
     await createUserSession({
       userId: user.id,
@@ -130,8 +126,8 @@ export const login = async (req, res) => {
 
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProduction, // HTTPS required in production
-      sameSite: isProduction ? "none" : "lax", // "none" for cross-domain, "lax" for local
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -146,7 +142,6 @@ export const logout = async (req, res) => {
   try {
     const { token } = req.cookies;
 
-    // Delete the specific session
     if (token) {
       await deleteUserSessionByToken(token);
     }
@@ -342,7 +337,6 @@ export const resetPassword = async (req, res) => {
 
 export const getActiveSessions = async (req, res) => {
   try {
-    // Prefer explicit userId sent by client, fallback to query params, then auth middleware
     const userId =
       req.body?.userId || req.query?.userId || req.user?.id || null;
 
@@ -352,7 +346,6 @@ export const getActiveSessions = async (req, res) => {
 
     const sessions = await getUserSessionsByUserId(userId);
 
-    // Filter out expired sessions only
     const activeSessions = sessions.filter(
       (session) => new Date(session.expiresAt) > new Date()
     );

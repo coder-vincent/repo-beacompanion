@@ -5,14 +5,6 @@ import {
 } from "../models/userSessionModel.js";
 import bcrypt from "bcryptjs";
 
-// Removed emitUserDataUpdate as we are using a generic event now
-// const emitUserDataUpdate = (req, userData) => {
-//   const io = req.app.get("io");
-//   if (io) {
-//     io.emit("userDataUpdate", userData);
-//   }
-// };
-
 export const getUserData = async (req, res) => {
   try {
     const { id } = req.user;
@@ -29,9 +21,6 @@ export const getUserData = async (req, res) => {
       email: user.email,
       isAccountVerified: user.isAccountVerified,
     };
-
-    // Removed emitUserDataUpdate
-    // emitUserDataUpdate(req, userData);
 
     res.json({
       success: true,
@@ -67,7 +56,6 @@ export const updateAccount = async (req, res) => {
       isAccountVerified: user.isAccountVerified,
     };
 
-    // Emit a general userListUpdate event
     const io = req.app.get("io");
     if (io) {
       io.emit("userListUpdate");
@@ -92,7 +80,6 @@ export const deleteAccount = async (req, res) => {
       return res.json({ success: false, message: "User not found" });
     }
 
-    // Delete all user sessions
     const userSessions = await getUserSessionsByUserId(userId);
     for (const session of userSessions) {
       await deleteUserSessionByToken(session.token);
@@ -108,7 +95,6 @@ export const deleteAccount = async (req, res) => {
       });
     }
 
-    // Emit a general userListUpdate event
     const io = req.app.get("io");
     if (io) {
       io.emit("userListUpdate");
@@ -124,12 +110,10 @@ export const createUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Basic validation
     if (!name || !email || !password) {
       return res.json({ success: false, message: "All fields are required" });
     }
 
-    // Check if user already exists
     const existingUser = await userModel.findOne({ where: { email } });
     if (existingUser) {
       return res.json({
@@ -147,7 +131,6 @@ export const createUser = async (req, res) => {
       isAccountVerified: false,
     });
 
-    // Emit a general userListUpdate event
     const io = req.app.get("io");
     if (io) {
       io.emit("userListUpdate");
