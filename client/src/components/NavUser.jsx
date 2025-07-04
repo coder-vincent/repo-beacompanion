@@ -56,6 +56,8 @@ export function NavUser({ user }) {
   const logout = async () => {
     try {
       axios.defaults.withCredentials = true;
+      localStorage.removeItem("authToken");
+      delete axios.defaults.headers.common["Authorization"];
       const { data } = await axios.post(backendUrl + "/api/auth/logout");
 
       data.success && setIsLoggedIn(false);

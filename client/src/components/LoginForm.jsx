@@ -60,6 +60,12 @@ const LoginForm = ({
         if (data.success) {
           toast.success("Account created successfully!");
           setIsLoggedIn(true);
+          if (data.token) {
+            localStorage.setItem("authToken", data.token);
+            axios.defaults.headers.common[
+              "Authorization"
+            ] = `Bearer ${data.token}`;
+          }
           await getUserData();
           navigate("/dashboard");
         } else {
@@ -74,8 +80,11 @@ const LoginForm = ({
         if (data.success) {
           toast.success("Logged in successfully!");
           setIsLoggedIn(true);
-
-          // Add a small delay to ensure cookie is set before making the next request
+          // Persist token for mobile browsers that block third-party cookies
+          localStorage.setItem("authToken", data.token);
+          axios.defaults.headers.common[
+            "Authorization"
+          ] = `Bearer ${data.token}`;
           console.log(
             "🍪 LoginForm: Login successful, waiting for cookie to be set..."
           );
